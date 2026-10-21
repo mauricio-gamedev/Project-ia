@@ -41,6 +41,9 @@ jobs:
         run: |
           set -euo pipefail
           rsync -a /tmp/nucleo-ai-source/nucleo-ai-android/ "$GITHUB_WORKSPACE/"
+          # Keep the already-authorized bootstrap workflow; adding a second workflow
+          # requires the GitHub App workflows permission. CI can be added separately.
+          rm -f .github/workflows/android-ci.yml
           rm -rf bootstrap /tmp/nucleo-ai-source /tmp/nucleo-ai-source.tar.xz
           git add -A
           if ! git diff --cached --quiet; then
