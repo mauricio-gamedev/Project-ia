@@ -288,7 +288,7 @@ class ProjectFactory {
         const val MAX_PATH_CHARS = 240
         private const val MAX_REPORTED_PROBLEMS = 20
         private const val MAX_SLUG_CHARS = 32
-        private val WINDOWS_DRIVE = Regex("^[A-Za-z]:")
+        private val WINDOWS_DRIVE = Regex("^[A-Za-z]:.*")
         private val INVALID_PATH_CHARACTERS = setOf('<', '>', ':', '"', '|', '?', '*')
         private val BLOCKED_DIRECTORIES = setOf(
             ".git", ".gradle", "build", "node_modules", "dist", "target", "outputs", "secrets", ".ssh", ".aws",
