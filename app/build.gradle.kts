@@ -72,7 +72,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("androidx.documentfile:documentfile:1.1.0")
 
-    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
     implementation("androidx.compose.ui:ui")
