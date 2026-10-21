@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0-alpha — 2026-10-21
+
+### Project Factory
+- Added an AI-assisted project drafting screen with explicit remote-prompt consent.
+- Added profile-aware manifest validation for Android, web, Python, and generic source projects.
+- Added private staging with path traversal, collision, secret-file, per-file size, file-count, and total-size checks.
+- Added per-file SHA-256 evidence and explicit source export through Android Storage Access Framework, without executing generated scripts.
+- Added regression tests for staging, unsafe paths, collisions, secret files, size limits, and profile requirements.
+
+### Status
+- The previous 0.2.0-alpha baseline build and APK artifact were verified by GitHub Actions. This 0.3.0-alpha branch still requires a fresh CI build and test run.
+- Generated projects are source-only; generated-project static analysis, build adapters, and APK generation remain pending.
+
+
 ## 0.2.0-alpha — 2026-10-21
 
 ### NúcleoLang
