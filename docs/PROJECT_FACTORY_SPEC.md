@@ -4,6 +4,12 @@
 
 O Project Factory será o subsistema que converte um objetivo em um projeto reproduzível: escolher uma stack, preparar estrutura e dependências, gerar arquivos, executar verificações, compilar quando houver toolchain disponível e entregar artefatos com um relatório de validação. A interface e o controle de tarefas ficam no Android; o local real de compilação será um adaptador selecionável, não uma suposição.
 
+## Estado implementado nesta alfa
+
+A tela Project Factory solicita o nome, o perfil e os requisitos do projeto. Depois de consentimento explícito, envia somente essa descrição ao provedor configurado e espera um manifesto JSON com arquivos de texto. `ProjectFactory` valida o manifesto e grava os arquivos aceitos numa pasta privada de staging, calculando tamanho e SHA-256 de cada arquivo. O usuário pode revisar a lista e exportar o fonte por meio do Android Storage Access Framework, para uma nova pasta; o exportador tenta remover os arquivos criados se uma cópia falhar.
+
+Limites atuais: 300 arquivos, 512 KiB por arquivo, 4 MiB por projeto e 240 caracteres por caminho. Perfis disponíveis: Android, web, Python e genérico. Os perfis Android/web/Python exigem um conjunto mínimo de arquivos. A validação não prova que o código compila, não executa código gerado, não resolve dependências e não produz APKs. A saída permanece marcada como aguardando revisão.
+
 ## Fluxo proposto
 
 1. **Entender o objetivo:** levantar plataforma, funções, restrições, artefatos esperados e critérios de aceitação.
