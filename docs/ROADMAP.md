@@ -11,7 +11,7 @@
 - [x] Snapshot textual de projeto limitado e consentido
 - [x] Testes unitários da validação de configuração
 - [x] Workflow Android CI
-- [ ] Build Android validado em runner real
+- [x] Build Android validado em runner real no commit de referência 0.2.0-alpha
 - [ ] Instalação e smoke test no Galaxy A06
 
 ## M1 — NúcleoLang autoral e validação
@@ -24,7 +24,7 @@
 - [x] Proteção contra nesting sintático excessivo
 - [x] Playground da linguagem acessível na tela inicial do app
 - [ ] Cancelamento cooperativo integrado à UI
-- [ ] Build Android real e execução dos testes no CI
+- [x] Build Android real e execução dos testes no CI (commit de referência 0.2.0-alpha)
 
 ## M2 — Validação e qualidade
 
@@ -34,11 +34,18 @@
 - Teste de provedor com respostas de sucesso, HTTP 401/429/500, timeout e resposta inválida
 - Melhorar mensagens de erro sem expor segredo ou resposta sensível
 
-## M3 — Project Factory e ferramentas de engenharia em modo somente leitura
+## M3 — Project Factory (primeira alfa)
 
-- Definir perfis de projeto e contrato de build adapter (ver `PROJECT_FACTORY_SPEC.md`)
-- Criar staging privado, relatório de diff e validação de caminhos antes de exportar
-- Implementar primeiro perfil Android e exportação de fonte; APK só após validar uma toolchain
+- [x] Pedir consentimento antes de enviar a descrição ao modelo remoto
+- [x] Interpretar manifesto JSON de arquivos textuais gerados pelo modelo
+- [x] Validar caminhos relativos, traversal, duplicatas, colisões arquivo/pasta e nomes de arquivos sensíveis
+- [x] Aplicar limites de 300 arquivos, 512 KiB por arquivo e 4 MiB por projeto
+- [x] Validar arquivos essenciais nos perfis Android, web e Python
+- [x] Gerar staging privado e evidências SHA-256 por arquivo
+- [x] Exportar para uma nova pasta escolhida pelo usuário via Storage Access Framework, sem sobrescrever arquivos existentes
+- [ ] Validar código gerado com diagnósticos estáticos e revisão de dependências
+- [ ] Implementar adaptador de build para projetos gerados e validar um APK externo
+- [ ] Acrescentar diff revisável, histórico e remoção/limpeza de staging
 
 - Scanner de repositório incremental
 - Identificador de linguagens/build systems e símbolos básicos

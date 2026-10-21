@@ -1,0 +1,442 @@
+package io.github.astromg01.nucleo.ui.project
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.documentfile.provider.DocumentFile
+import io.github.astromg01.nucleo.AppContainer
+import io.github.astromg01.nucleo.core.ai.AiMessage
+import io.github.astromg01.nucleo.core.ai.AiRequest
+import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
+import io.github.astromg01.nucleo.domain.project.ProjectDraft
+import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.ProjectProfile
+import io.github.astromg01.nucleo.domain.project.StagedProject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.io.IOException
+import java.security.MessageDigest
+import java.util.Locale
+
+@Composable
+fun ProjectFactoryScreen(container: AppContainer) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
+
+    var projectName by remember { mutableStateOf("Meu projeto") }
+    var description by remember { mutableStateOf("") }
+    var profile by remember { mutableStateOf(ProjectProfile.ANDROID_APP) }
+    var remoteConsent by remember { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var status by remember { mutableStateOf("Descreve o projeto e gera um primeiro rascunho revisável.") }
+    var statusIsError by remember { mutableStateOf(false) }
+
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        val staged = stagedProject
+        if (uri != null && staged != null && !exporting) {
+            exporting = true
+            status = "Exportando os arquivos…"
+            statusIsError = false
+            scope.launch {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                    val result = withContext(Dispatchers.IO) {
+                        exportStagedProject(context, uri, staged)
+                    }
+                    status = result
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status = error.message ?: "Não foi possível exportar o projeto."
+                    statusIsError = true
+                } finally {
+                    exporting = false
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Criar projeto com IA", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "A IA gera arquivos de texto. O Núcleo verifica os caminhos e arquivos essenciais e guarda o rascunho numa área privada antes de exportar. Nenhum script é executado e nenhum build é declarado como concluído.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        OutlinedTextField(
+            value = projectName,
+            onValueChange = {
+                projectName = it
+                stagedProject = null
+            },
+            label = { Text("Nome do projeto") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+
+        Text("Perfil inicial", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileChip("Android / APK", profile == ProjectProfile.ANDROID_APP) {
+                    profile = ProjectProfile.ANDROID_APP
+                    stagedProject = null
+                }
+                ProfileChip("Web", profile == ProjectProfile.WEB_APP) {
+                    profile = ProjectProfile.WEB_APP
+                    stagedProject = null
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileChip("Python", profile == ProjectProfile.PYTHON) {
+                    profile = ProjectProfile.PYTHON
+                    stagedProject = null
+                }
+                ProfileChip("Genérico", profile == ProjectProfile.GENERIC) {
+                    profile = ProjectProfile.GENERIC
+                    stagedProject = null
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = description,
+            onValueChange = {
+                description = it
+                stagedProject = null
+            },
+            label = { Text("O que a IA deve criar?") },
+            placeholder = { Text("Ex.: um app de lista de tarefas com salvamento local, pesquisa e tema escuro…") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 5,
+            maxLines = 10,
+        )
+
+        Card(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = remoteConsent, onCheckedChange = { remoteConsent = it })
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Autorizo enviar o pedido ao modelo configurado", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "O texto da descrição será enviado ao provedor remoto configurado para gerar o código. Não inclua senhas, tokens nem dados privados.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = {
+                if (projectName.isBlank() || description.isBlank()) {
+                    status = "Preenche o nome e descreve o que queres criar."
+                    statusIsError = true
+                } else if (!remoteConsent) {
+                    status = "Confirma o envio do pedido ao provedor antes de gerar o projeto."
+                    statusIsError = true
+                } else if (!generating && !exporting) {
+                    stagedProject = null
+                    generating = true
+                    status = "A IA está preparando o manifesto de arquivos…"
+                    statusIsError = false
+                    val requestedName = projectName.trim()
+                    val requestedDescription = description.trim()
+                    val requestedProfile = profile
+                    scope.launch {
+                        try {
+                            val request = AiRequest(
+                                messages = listOf(
+                                    AiMessage(
+                                        "system",
+                                        buildString {
+                                            append("Você é o gerador de projetos do Núcleo AI. Produza um projeto inicial coerente com o perfil solicitado. ")
+                                            append("Responda apenas com um único objeto JSON, sem Markdown ou texto adicional, no formato: ")
+                                            append("{\"description\":\"resumo curto\",\"files\":[{\"path\":\"README.md\",\"content\":\"conteúdo completo do arquivo\"}]}. ")
+                                            append("Cada arquivo deve ser texto UTF-8 completo. Não gere arquivos binários, .git, .gradle, build, node_modules, credenciais, chaves, .env, local.properties ou google-services.json. ")
+                                            append("Não afirme que compilou nem testou qualquer coisa. Gere um projeto mínimo funcional e prefira dependências pequenas. ")
+                                            append("Para ANDROID_APP, inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts, app/src/main/AndroidManifest.xml e uma Activity Kotlin em app/src/main/java/. ")
+                                            append("No perfil Android use Kotlin DSL, SDK 36, minSdk 26 e versões consistentes de AGP/Gradle/Kotlin; descreva no README como compilar. ")
+                                            append("Para WEB_APP inclua package.json e index.html. Para PYTHON inclua pyproject.toml ou requirements.txt e pelo menos um arquivo .py. ")
+                                            append("A validação automática rejeitará caminhos absolutos, traversal, arquivos secretos, arquivos duplicados e perfis incompletos.")
+                                        },
+                                    ),
+                                    AiMessage(
+                                        "user",
+                                        "Nome: $requestedName\nPerfil: ${requestedProfile.name}\nRequisitos do projeto:\n$requestedDescription\n\nGere os arquivos necessários para uma primeira versão, priorizando funcionalidade e simplicidade.",
+                                    ),
+                                ),
+                                temperature = 0.15,
+                                maxOutputTokens = 12_000,
+                            )
+                            val response = container.modelRouter.generate(request)
+                            val draft = parseProjectDraft(
+                                responseText = response.text,
+                                name = requestedName,
+                                description = requestedDescription,
+                                profile = requestedProfile,
+                            )
+                            val factory = ProjectFactory()
+                            val staged = withContext(Dispatchers.IO) {
+                                factory.stage(draft, stagingRoot)
+                            }
+                            stagedProject = staged
+                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos em staging privado. Ainda não houve compilação."
+                            statusIsError = false
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            status = error.message ?: "Não foi possível gerar o projeto."
+                            statusIsError = true
+                        } finally {
+                            generating = false
+                        }
+                    }
+                }
+            },
+            enabled = !generating && !exporting,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (generating) {
+                CircularProgressIndicator()
+            } else {
+                Text("Gerar e validar arquivos")
+            }
+        }
+
+        Text(
+            status,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        stagedProject?.let { staged ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(staged.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${staged.profile.name} · ${staged.files.size} arquivos · aguardando revisão",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    staged.files.take(MAX_VISIBLE_FILES).forEach { file ->
+                        Text(
+                            "${file.relativePath} · ${file.sizeBytes} bytes",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                    if (staged.files.size > MAX_VISIBLE_FILES) {
+                        Text(
+                            "… e mais ${staged.files.size - MAX_VISIBLE_FILES} arquivos",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { folderPicker.launch(null) },
+                        enabled = !exporting && !generating,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (exporting) "Exportando…" else "Exportar código-fonte para uma pasta")
+                    }
+                    Text(
+                        "A exportação não executa scripts, não compila APKs e não assina um release. Revise o código antes de usá-lo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun ProfileChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+}
+
+private fun parseProjectDraft(
+    responseText: String,
+    name: String,
+    description: String,
+    profile: ProjectProfile,
+): ProjectDraft {
+    val start = responseText.indexOf('{')
+    val end = responseText.lastIndexOf('}')
+    require(start >= 0 && end > start) {
+        "O modelo não retornou um manifesto JSON válido. Tenta novamente com requisitos mais curtos."
+    }
+    val json = try {
+        JSONObject(responseText.substring(start, end + 1))
+    } catch (error: Exception) {
+        throw IllegalArgumentException("O manifesto JSON do modelo está malformado.", error)
+    }
+    val filesJson = json.optJSONArray("files")
+        ?: throw IllegalArgumentException("O manifesto não contém a lista de arquivos esperada.")
+    require(filesJson.length() in 1..ProjectFactory.MAX_FILES) {
+        "O manifesto precisa conter entre 1 e ${ProjectFactory.MAX_FILES} arquivos."
+    }
+    val files = (0 until filesJson.length()).map { index ->
+        val entry = filesJson.optJSONObject(index)
+            ?: throw IllegalArgumentException("A entrada de arquivo ${index + 1} não é um objeto JSON.")
+        val path = entry.optString("path", "")
+        val content = entry.optString("content", "")
+        require(path.isNotBlank()) { "A entrada de arquivo ${index + 1} não contém caminho." }
+        GeneratedProjectFile(path = path, content = content)
+    }
+    return ProjectDraft(
+        name = name,
+        profile = profile,
+        description = description,
+        files = files,
+    )
+}
+
+private fun exportStagedProject(
+    context: Context,
+    destinationTreeUri: Uri,
+    staged: StagedProject,
+): String {
+    val destinationRoot = DocumentFile.fromTreeUri(context, destinationTreeUri)
+        ?: throw IOException("O Android não conseguiu abrir a pasta escolhida.")
+    if (!destinationRoot.canWrite()) {
+        throw IOException("A pasta escolhida não permite criar arquivos.")
+    }
+
+    val baseName = safeFolderName(staged.name)
+    var folderName = baseName
+    var suffix = 2
+    while (destinationRoot.findFile(folderName) != null) {
+        folderName = "${baseName.take(54)}-$suffix"
+        suffix++
+        if (suffix > 1000) throw IOException("Não foi possível encontrar um nome de pasta livre.")
+    }
+    val projectFolder = destinationRoot.createDirectory(folderName)
+        ?: throw IOException("Não foi possível criar a pasta de destino.")
+    val createdDocuments = mutableListOf(projectFolder)
+
+    try {
+        for (record in staged.files) {
+            val stagedFile = File(staged.directory, record.relativePath)
+            if (!stagedFile.isFile) throw IOException("Arquivo temporário ausente: ${record.relativePath}")
+            val bytes = stagedFile.readBytes()
+            if (bytes.size.toLong() != record.sizeBytes || sha256(bytes) != record.sha256) {
+                throw IOException("O arquivo temporário mudou após a validação: ${record.relativePath}")
+            }
+
+            val segments = record.relativePath.split('/')
+            var parent = projectFolder
+            for (segment in segments.dropLast(1)) {
+                val existing = parent.findFile(segment)
+                if (existing != null) {
+                    if (!existing.isDirectory) throw IOException("Conflito de pasta no destino: $segment")
+                    parent = existing
+                } else {
+                    val created = parent.createDirectory(segment)
+                        ?: throw IOException("Não foi possível criar a pasta: $segment")
+                    createdDocuments += created
+                    parent = created
+                }
+            }
+            val filename = segments.last()
+            if (parent.findFile(filename) != null) {
+                throw IOException("O destino já contém o arquivo ${record.relativePath}; nada será sobrescrito.")
+            }
+            val outputFile = parent.createFile(mimeType(filename), filename)
+                ?: throw IOException("Não foi possível criar o arquivo ${record.relativePath}.")
+            createdDocuments += outputFile
+            val output = context.contentResolver.openOutputStream(outputFile.uri, "w")
+                ?: throw IOException("Não foi possível gravar ${record.relativePath}.")
+            output.use { it.write(bytes) }
+        }
+    } catch (error: Exception) {
+        createdDocuments.asReversed().forEach { created ->
+            try {
+                created.delete()
+            } catch (_: Exception) {
+                // Best effort rollback of only documents created in this export.
+            }
+        }
+        if (error is IOException) throw error
+        throw IOException("A exportação falhou e o Núcleo tentou remover os arquivos criados nesta operação.", error)
+    }
+
+    return "Código-fonte exportado para '$folderName' (${staged.files.size} arquivos). Build e APK continuam pendentes."
+}
+
+private fun safeFolderName(raw: String): String =
+    raw.map { character ->
+        if (character.isLetterOrDigit() || character in listOf(' ', '-', '_', '.')) character else '-'
+    }.joinToString("")
+        .trim()
+        .trim('.')
+        .take(60)
+        .ifBlank { "nucleo-project" }
+
+private fun mimeType(filename: String): String = when (filename.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
+    "json" -> "application/json"
+    "xml" -> "application/xml"
+    "html" -> "text/html"
+    "css" -> "text/css"
+    "js", "mjs" -> "text/javascript"
+    "svg" -> "image/svg+xml"
+    else -> "text/plain"
+}
+
+private fun sha256(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+private const val MAX_VISIBLE_FILES = 40
