@@ -12,7 +12,8 @@
 - A chave de API é cifrada com AES/GCM/NoPadding; a chave AES fica no Android Keystore. A base de dados não armazena essa chave.
 - Backup Android é desativado para evitar exportar acidentalmente o banco e preferências cifradas.
 - HTTP puro é rejeitado na configuração dos provedores remotos.
-- A pasta é escolhida explicitamente pelo usuário; a permissão persistente solicitada é de leitura.
+- A pasta de projeto é escolhida explicitamente pelo usuário; a permissão de leitura persistente fica limitada à pasta escolhida.
+- A exportação da Project Factory só ocorre após o usuário escolher uma pasta no Storage Access Framework e requer permissão de escrita para aquela árvore.
 - Nenhum snapshot é enviado para tarefa associada a projeto sem consentimento persistido.
 - A leitura do projeto é limitada a 5 níveis, 300 entradas visitadas, 18 trechos, 2.500 caracteres por arquivo e 16.000 caracteres de conteúdo total.
 - `.git`, `build`, `node_modules`, arquivos de ambiente, chaves, alguns arquivos de credenciais e outros artefatos são ignorados.
@@ -23,7 +24,9 @@
 
 - Padrões de redação não detectam todo segredo possível. Antes de vincular qualquer projeto a uma API externa, o usuário deve confirmar que pode compartilhar o código.
 - Provedores remotos recebem os prompts/memórias enviados pelo aplicativo e podem processar ou reter esses dados segundo seus próprios termos.
-- Não existe sandbox para execução de código porque execução de comandos ainda não foi implementada.
+- A Project Factory valida manifestos, bloqueia caminhos de traversal, detecta caminhos duplicados/conflitos e bloqueia nomes/extensões comuns de segredos; os arquivos ficam em staging privado até o usuário exportar.
+- A exportação usa uma nova pasta e não sobrescreve arquivos deliberadamente; se falhar, tenta remover somente os documentos criados nessa operação. A reversão depende do suporte do provedor de documentos.
+- Não existe sandbox para execução de código porque execução de comandos ainda não foi implementada. Os projetos gerados não são executados nem compilados por esta alfa.
 - O app ainda não oferece bloqueio biométrico, exportação/remoção seletiva de todo o histórico, política avançada por provedor ou gestão de múltiplas chaves.
 - O uso de Android Keystore protege a chave em repouso, mas não protege contra um dispositivo desbloqueado comprometido ou exploração dentro do próprio app.
 
