@@ -164,7 +164,13 @@ class ProjectFactoryTest {
     @Test
     fun `requires entry points for web and Python profiles`() {
         val webError = assertThrows(ProjectDraftValidationException::class.java) {
-            factory.validate(draftOf("README.md"))
+            factory.validate(
+                ProjectDraft(
+                    name = "Web",
+                    profile = ProjectProfile.WEB_APP,
+                    files = listOf(GeneratedProjectFile("README.md", "# Missing web entry points")),
+                ),
+            )
         }
         assertTrue(webError.message!!.contains("index.html"))
 
