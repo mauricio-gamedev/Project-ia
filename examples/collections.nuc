@@ -1,0 +1,21 @@
+// Listas mutáveis, indexação, funções e biblioteca inicial.
+fun sum(values) {
+    let index = 0;
+    let total = 0;
+    while (index < len(values)) {
+        total = total + values[index];
+        index = index + 1;
+    }
+    return total;
+}
+
+let scores = [10, 20, 30];
+push(scores, 40);
+scores[1] = 25;
+print("Quantidade =");
+print(len(scores));
+print("Soma =");
+print(sum(scores));
+print(contains(scores, 30));
+print(pop(scores));
+print(scores);

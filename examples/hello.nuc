@@ -1,0 +1,13 @@
+// Primeiro programa NúcleoLang.
+fun fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+let result = fibonacci(8);
+if (result == 21) {
+    print("NúcleoLang funcionando!");
+    print("Fibonacci(8) = " + "21");
+} else {
+    print("Resultado inesperado");
+}
