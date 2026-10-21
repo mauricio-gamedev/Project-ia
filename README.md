@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Codinome provisório · versão 0.2.0 · etapa de fundação expansível**
+> **Codinome provisório · versão 0.3.0-alpha · Project Factory inicial**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
@@ -17,13 +17,14 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Tarefas de planejamento executadas em WorkManager, com estado persistido, checkpoints de conclusão e tentativas limitadas para falhas transitórias de rede.
 - **NúcleoLang 0.2 alfa (fundação expansível)**: lexer, parser, AST e interpretador Kotlin autorais para variáveis, funções, condições, loops, listas mutáveis, indexação, bibliotecas iniciais e funções de host registradas explicitamente, com orçamento de execução e sem shell/rede/arquivos embutidos.
 - Playground NúcleoLang dentro do app para editar e executar exemplos localmente, sem Termux.
+- **Project Factory alpha**: geração assistida por modelo de manifestos JSON, validação de caminhos e perfis, staging privado com hashes SHA-256 e exportação explícita dos arquivos-fonte via Android Storage Access Framework.
 - Leitura opcional e limitada de arquivos textuais de um projeto, somente depois de consentimento explícito na criação da tarefa.
 - Testes unitários para validar configurações dos provedores.
 - Workflow de CI para executar testes e gerar um APK de depuração.
 
 ## O que ainda não está implementado
 
-É importante distinguir estrutura de funcionalidade concluída. Esta versão **não** modifica arquivos de código, não executa comandos de shell, não implementa Git, não cria pull requests e não inclui um runtime de inferência local. NúcleoLang ainda não compila APKs nem expõe ferramentas de engenharia: ela é uma linguagem interpretada básica cuja integração com o agente será desenvolvida depois. O Project Factory também é uma especificação, ainda não uma funcionalidade implementada. O núcleo de tarefas gera planos técnicos, não implementações automáticas. A interface `LocalModelRuntime` é apenas o ponto de extensão para integrar um motor local numa etapa futura.
+É importante distinguir estrutura de funcionalidade concluída. Esta versão **não** modifica arquivos de código, não executa comandos de shell, não implementa Git, não cria pull requests e não inclui um runtime de inferência local. NúcleoLang ainda não compila APKs nem expõe ferramentas de engenharia: ela é uma linguagem interpretada básica cuja integração com o agente será desenvolvida depois. O Project Factory agora tem uma primeira implementação alfa: gera um manifesto com o modelo configurado, valida caminhos e arquivos essenciais, guarda o resultado em staging privado e permite exportar o código-fonte após ação explícita do usuário. Ainda não executa os scripts gerados nem compila os projetos criados. O núcleo de tarefas gera planos técnicos, não implementações automáticas. A interface `LocalModelRuntime` é apenas o ponto de extensão para integrar um motor local numa etapa futura.
 
 Também ainda não há busca semântica por embeddings, indexação incremental completa, agentes paralelos ou treinamento de modelo próprio. Esses recursos não devem ser tratados como existentes só porque constam do roadmap.
 
@@ -58,7 +59,7 @@ No Windows:
 gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Os scripts incluídos baixam a distribuição Gradle 8.13 do endereço HTTPS oficial quando ela ainda não está em cache e verificam o SHA-256 oficial fixado no projeto. O primeiro build também precisa baixar as dependências do Maven. Este ambiente de preparação não possui Android SDK nem distribuição Gradle instalada, portanto o APK ainda não foi compilado aqui; o workflow `.github/workflows/android-ci.yml` pode validar o build quando executado num runner com acesso às dependências.
+Os scripts incluídos baixam a distribuição Gradle 8.13 do endereço HTTPS oficial quando ela ainda não está em cache e verificam o SHA-256 oficial fixado no projeto. O primeiro build também precisa baixar as dependências do Maven. O build de referência da versão anterior passou no GitHub Actions. Esta versão precisa passar novamente pelo workflow após as alterações; compilar o próprio Núcleo AI não significa que os projetos gerados pela Project Factory sejam compiláveis.
 
 O APK de depuração, quando o build terminar com sucesso, deve aparecer em:
 
