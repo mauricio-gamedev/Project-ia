@@ -94,10 +94,11 @@ import io.github.astromg01.nucleo.data.local.TaskStatus
 import io.github.astromg01.nucleo.data.settings.ProviderConfiguration
 import io.github.astromg01.nucleo.ui.NucleoTheme
 import io.github.astromg01.nucleo.ui.lang.LangPlaygroundScreen
+import io.github.astromg01.nucleo.ui.project.ProjectFactoryScreen
 import kotlinx.coroutines.launch
 
 private enum class AppScreen(val label: String) {
-    HOME("Início"), CHAT("Conversa"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), SETTINGS("Configurações")
+    HOME("Início"), CHAT("Conversa"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), FACTORY("Criar projeto"), SETTINGS("Configurações")
 }
 
 class MainActivity : ComponentActivity() {
@@ -164,7 +165,7 @@ private fun NucleoShell(container: AppContainer) {
                     }
                 },
                 navigationIcon = {
-                    if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG) {
+                    if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG || screen == AppScreen.FACTORY) {
                         IconButton(onClick = { screen = AppScreen.HOME }) {
                             Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar")
                         }
@@ -178,7 +179,7 @@ private fun NucleoShell(container: AppContainer) {
             )
         },
         bottomBar = {
-            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG) {
+            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG && screen != AppScreen.FACTORY) {
                 NavigationBar {
                     listOf(
                         AppScreen.HOME to Icons.Outlined.Home,
@@ -228,6 +229,7 @@ private fun NucleoShell(container: AppContainer) {
                 })
                 AppScreen.SETTINGS -> SettingsScreen(container)
                 AppScreen.LANG -> LangPlaygroundScreen()
+                AppScreen.FACTORY -> ProjectFactoryScreen(container)
             }
         }
     }
@@ -311,6 +313,11 @@ private fun HomeScreen(
                 Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
                 Spacer(Modifier.size(8.dp))
                 Text("Experimentar NúcleoLang")
+            }
+            OutlinedButton(onClick = { onNavigate(AppScreen.FACTORY) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
+                Spacer(Modifier.size(8.dp))
+                Text("Criar projeto com IA")
             }
         }
         item { Spacer(Modifier.height(12.dp)) }
