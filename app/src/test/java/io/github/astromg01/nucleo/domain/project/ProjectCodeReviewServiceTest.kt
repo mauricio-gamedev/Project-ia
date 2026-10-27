@@ -49,7 +49,7 @@ class ProjectCodeReviewServiceTest {
         val response = """{"summary":"duplicates","files":[{"path":"index.html","content":"a"},{"path":"index.html","content":"b"}]}"""
 
         try {
-            service.parseRepairProposal(response, setOf("index.html"))
+            service.parseRepairProposal(response, setOf("index.html", "script.js"))
             throw AssertionError("Expected duplicate path rejection.")
         } catch (error: IllegalArgumentException) {
             assertTrue(error.message!!.contains("repetido"))
