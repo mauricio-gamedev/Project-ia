@@ -61,9 +61,12 @@ class ProviderHttpException(
 data class ProviderRouteFailure(
     val providerName: String,
     val reason: String,
+    val retryable: Boolean = false,
 )
 
 class ModelRoutingException(
     val failures: List<ProviderRouteFailure>,
     message: String,
-) : IllegalStateException(message)
+) : IllegalStateException(message) {
+    val isRetryable: Boolean = failures.any { it.retryable }
+}
