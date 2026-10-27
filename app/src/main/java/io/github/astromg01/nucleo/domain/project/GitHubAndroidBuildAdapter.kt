@@ -547,8 +547,8 @@ class GitHubAndroidBuildAdapter(
                     shell: bash
                     run: |
                       set -euo pipefail
-                      yes | "§{{ steps.android-sdk.outputs.sdkmanager }} --licenses >/dev/null || true
-                      "§{{ steps.android-sdk.outputs.sdkmanager }} "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+                      yes | "§{{ steps.android-sdk.outputs.sdkmanager }}" --licenses >/dev/null || true
+                      "§{{ steps.android-sdk.outputs.sdkmanager }}" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
                   - name: Download and verify Gradle 8.13
                     shell: bash
                     run: |
