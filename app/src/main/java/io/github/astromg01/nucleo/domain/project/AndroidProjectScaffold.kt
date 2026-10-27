@@ -173,7 +173,8 @@ object AndroidProjectScaffold {
             content.contains("<application") &&
             content.contains("<activity") &&
             content.contains("android.intent.action.MAIN") &&
-            content.contains("android.intent.category.LAUNCHER")
+            content.contains("android.intent.category.LAUNCHER") &&
+            Regex("""android:exported\\s*=\\s*["']true["']""").containsMatchIn(content)
 
     private fun findLauncher(files: List<GeneratedProjectFile>): String? {
         val kotlinPackage = Regex("""(?m)^\\s*package\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)""")
