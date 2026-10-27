@@ -22,9 +22,29 @@ class ProviderConfigurationValidatorTest {
             modelName = "model-x",
         )
         assertEquals(
-            "Por segurança, provedores remotos precisam usar HTTPS nesta versão.",
+            "HTTP sem criptografia só é permitido para localhost/127.0.0.1/::1. Provedores remotos precisam usar HTTPS.",
             ProviderConfigurationValidator.validate(config),
         )
+    }
+
+    @Test
+    fun acceptsHttpOnlyForExplicitLoopbackGateway() {
+        val config = ProviderConfiguration(
+            providerName = "FreeLLMAPI local",
+            baseUrl = "http://127.0.0.1:3001/v1",
+            modelName = "auto:smart",
+        )
+        assertNull(ProviderConfigurationValidator.validate(config))
+    }
+
+    @Test
+    fun acceptsLocalhostAliasForAnOnDeviceGateway() {
+        val config = ProviderConfiguration(
+            providerName = "FreeLLMAPI local",
+            baseUrl = "http://localhost:3001/v1",
+            modelName = "auto:smart",
+        )
+        assertNull(ProviderConfigurationValidator.validate(config))
     }
 
     @Test
