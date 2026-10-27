@@ -265,15 +265,16 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                     AiMessage(
                                         "system",
                                         buildString {
-                                            append("Você é o gerador de projetos do Núcleo AI. Produza um projeto inicial coerente com o perfil solicitado. ")
-                                            append("Responda apenas com um único objeto JSON, sem Markdown ou texto adicional, no formato: ")
-                                            append("{\"description\":\"resumo curto\",\"files\":[{\"path\":\"README.md\",\"content\":\"conteúdo completo do arquivo\"}]}. ")
-                                            append("Cada arquivo deve ser texto UTF-8 completo. Não gere arquivos binários, .git, .gradle, build, node_modules, credenciais, chaves, .env, local.properties ou google-services.json. ")
-                                            append("Não afirme que compilou nem testou qualquer coisa. Gere um projeto mínimo funcional e prefira dependências pequenas. ")
-                                            append("Para ANDROID_APP, inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts, app/src/main/AndroidManifest.xml e uma Activity Kotlin em app/src/main/java/. ")
-                                            append("No perfil Android use Kotlin DSL, SDK 36, minSdk 26 e versões consistentes de AGP/Gradle/Kotlin; descreva no README como compilar. ")
-                                            append("Para WEB_APP inclua package.json e index.html. Para PYTHON inclua pyproject.toml ou requirements.txt e pelo menos um arquivo .py. ")
-                                            append("A validação automática rejeitará caminhos absolutos, traversal, arquivos secretos, arquivos duplicados e perfis incompletos.")
+                                            append("Você é o gerador de projetos do Núcleo AI. Gere o menor projeto útil que satisfaça os requisitos do usuário. ")
+                                            append("A saída precisa ser um único objeto JSON válido, começando em { e terminando em }, sem Markdown, cercas de código, comentários ou texto antes/depois. ")
+                                            append("Formato obrigatório: {\"description\":\"resumo curto\",\"files\":[{\"path\":\"index.html\",\"content\":\"conteúdo completo do arquivo\"}]}. ")
+                                            append("REGRA CRÍTICA: cada valor content é uma string JSON. Escape quebras de linha como \\n, aspas internas como \\\" e barras invertidas como \\\\. Nunca coloque quebras de linha literais dentro de uma string JSON. ")
+                                            append("Não use vírgulas finais. Não invente campos. Cada entrada deve ter somente path e content, ambos strings. ")
+                                            append("Para WEB_APP prefira somente index.html, styles.css, script.js e package.json, sem dependências de runtime externas se não forem necessárias. Mantenha o código simples para caber na resposta. ")
+                                            append("Para ANDROID_APP inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts, app/src/main/AndroidManifest.xml e ao menos uma Activity Kotlin em app/src/main/java/. Use SDK 36, minSdk 26 e versões compatíveis de Gradle/AGP/Kotlin. ")
+                                            append("Para PYTHON inclua pyproject.toml ou requirements.txt e pelo menos um arquivo .py. Para GENÉRICO use a estrutura apropriada ao pedido. ")
+                                            append("Não gere binários, .git, .gradle, build, node_modules, credenciais, chaves, .env, local.properties ou google-services.json. ")
+                                            append("Nunca afirme que executou testes ou compilou. A saída é apenas fonte ainda não executada. Caminhos devem ser relativos e únicos.")
                                         },
                                     ),
                                     AiMessage(
@@ -281,10 +282,21 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                         "Nome: $requestedName\nPerfil: ${requestedProfile.name}\nRequisitos do projeto:\n$requestedDescription\n\nGere os arquivos necessários para uma primeira versão, priorizando funcionalidade e simplicidade.",
                                     ),
                                 ),
-                                temperature = 0.15,
+                                temperature = 0.0,
                                 maxOutputTokens = 12_000,
+                                jsonObjectMode = true,
                             )
-                            val response = container.modelRouter.generate(request)
+                            val response = try {
+                                container.modelRouter.generate(request)
+                            } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                // Some OpenAI-compatible endpoints do not implement JSON mode.
+                                // Retry once without the optional format parameter on HTTP 400 only.
+                                if (error.statusCode == 400 && request.jsonObjectMode) {
+                                    container.modelRouter.generate(request.copy(jsonObjectMode = false))
+                                } else {
+                                    throw error
+                                }
+                            }
                             val draft = parseProjectDraft(
                                 responseText = response.text,
                                 name = requestedName,
