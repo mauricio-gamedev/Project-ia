@@ -152,9 +152,9 @@ class ModelRouter(
             .joinToString("; ") { "${it.providerName}: ${it.reason}" }
         val extra = if (failures.size > MAX_FAILURE_DETAILS) "; e mais ${failures.size - MAX_FAILURE_DETAILS} rota(s)" else ""
         val message = "Nenhum modelo configurado conseguiu atender esta solicitação. $details$extra"
-        throw ModelRoutingException(failures, message).also {
-            if (lastFailure != null) it.addSuppressed(lastFailure)
-        }
+        val routingFailure = ModelRoutingException(failures, message)
+        lastFailure?.let(routingFailure::addSuppressed)
+        throw routingFailure
     }
 
     private companion object {
