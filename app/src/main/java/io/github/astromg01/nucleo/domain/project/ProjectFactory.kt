@@ -429,7 +429,7 @@ class ProjectFactory {
         const val MAX_FILE_BYTES = 512 * 1024
         const val MAX_TOTAL_BYTES = 4 * 1024 * 1024
         const val MAX_NAME_CHARS = 80
-        const val MAX_DESCRIPTION_CHARS = 1_000
+        const val MAX_DESCRIPTION_CHARS = 4_000
         const val MAX_PATH_CHARS = 240
         const val MAX_PREVIEW_CHARS = 16_000
         private const val MAX_REPORTED_PROBLEMS = 20
