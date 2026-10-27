@@ -1,7 +1,6 @@
 package io.github.astromg01.nucleo.ui.project
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -59,8 +58,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
-import java.util.Locale
 
 @Composable
 fun ProjectFactoryScreen(container: AppContainer) {
@@ -113,26 +110,30 @@ fun ProjectFactoryScreen(container: AppContainer) {
         }
     }
 
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+    val zipExporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri: Uri? ->
         val staged = stagedProject
-        if (uri != null && staged != null && !exporting) {
+        if (uri == null) {
+            if (staged != null) {
+                status = "Exportação cancelada."
+                statusIsError = false
+            }
+        } else if (staged != null && !exporting) {
             exporting = true
-            status = "Exportando os arquivos…"
+            status = "Preparando ZIP e verificando a integridade dos arquivos…"
             statusIsError = false
             scope.launch {
                 try {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                    )
                     val result = withContext(Dispatchers.IO) {
-                        exportStagedProject(context, uri, staged)
+                        exportStagedProjectZip(context, uri, staged)
                     }
                     status = result
+                    statusIsError = false
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    status = error.message ?: "Não foi possível exportar o projeto."
+                    status = error.message ?: "Não foi possível exportar o ZIP."
                     statusIsError = true
                 } finally {
                     exporting = false
@@ -390,11 +391,14 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         }
                     }
                     OutlinedButton(
-                        onClick = { folderPicker.launch(null) },
+                        onClick = {
+                            val name = staged.name
+                            zipExporter.launch(safeZipFilename(name))
+                        },
                         enabled = !exporting && !generating,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (exporting) "Exportando…" else "Exportar código-fonte para uma pasta")
+                        Text(if (exporting) "Exportando ZIP…" else "Exportar projeto como ZIP")
                     }
                     OutlinedButton(
                         onClick = { discardCurrentDraft(showStatus = true) },
@@ -546,100 +550,43 @@ private fun parseProjectDraft(
     )
 }
 
-private fun exportStagedProject(
+private fun exportStagedProjectZip(
     context: Context,
-    destinationTreeUri: Uri,
+    destinationUri: Uri,
     staged: StagedProject,
 ): String {
-    val destinationRoot = DocumentFile.fromTreeUri(context, destinationTreeUri)
-        ?: throw IOException("O Android não conseguiu abrir a pasta escolhida.")
-    if (!destinationRoot.canWrite()) {
-        throw IOException("A pasta escolhida não permite criar arquivos.")
-    }
-
-    val baseName = safeFolderName(staged.name)
-    var folderName = baseName
-    var suffix = 2
-    while (destinationRoot.findFile(folderName) != null) {
-        folderName = "${baseName.take(54)}-$suffix"
-        suffix++
-        if (suffix > 1000) throw IOException("Não foi possível encontrar um nome de pasta livre.")
-    }
-    val projectFolder = destinationRoot.createDirectory(folderName)
-        ?: throw IOException("Não foi possível criar a pasta de destino.")
-    val createdDocuments = mutableListOf(projectFolder)
-
     try {
-        for (record in staged.files) {
-            val stagedFile = File(staged.directory, record.relativePath)
-            if (!stagedFile.isFile) throw IOException("Arquivo temporário ausente: ${record.relativePath}")
-            val bytes = stagedFile.readBytes()
-            if (bytes.size.toLong() != record.sizeBytes || sha256(bytes) != record.sha256) {
-                throw IOException("O arquivo temporário mudou após a validação: ${record.relativePath}")
-            }
-
-            val segments = record.relativePath.split('/')
-            var parent = projectFolder
-            for (segment in segments.dropLast(1)) {
-                val existing = parent.findFile(segment)
-                if (existing != null) {
-                    if (!existing.isDirectory) throw IOException("Conflito de pasta no destino: $segment")
-                    parent = existing
-                } else {
-                    val created = parent.createDirectory(segment)
-                        ?: throw IOException("Não foi possível criar a pasta: $segment")
-                    createdDocuments += created
-                    parent = created
-                }
-            }
-            val filename = segments.last()
-            if (parent.findFile(filename) != null) {
-                throw IOException("O destino já contém o arquivo ${record.relativePath}; nada será sobrescrito.")
-            }
-            val outputFile = parent.createFile(mimeType(filename), filename)
-                ?: throw IOException("Não foi possível criar o arquivo ${record.relativePath}.")
-            createdDocuments += outputFile
-            val output = context.contentResolver.openOutputStream(outputFile.uri, "w")
-                ?: throw IOException("Não foi possível gravar ${record.relativePath}.")
-            output.use { it.write(bytes) }
+        val output = context.contentResolver.openOutputStream(destinationUri, "w")
+            ?: throw IOException("O Android não conseguiu abrir o arquivo ZIP para gravação.")
+        val written = ProjectFactory().writeZip(staged, output)
+        return "Projeto exportado como ZIP com $written arquivos. Ele ainda precisa ser extraído e testado; o Núcleo não executou o projeto."
+    } catch (cancelled: CancellationException) {
+        try {
+            DocumentFile.fromSingleUri(context, destinationUri)?.delete()
+        } catch (_: Exception) {
+            // Best-effort cleanup for an incomplete output document.
         }
+        throw cancelled
     } catch (error: Exception) {
-        createdDocuments.asReversed().forEach { created ->
-            try {
-                created.delete()
-            } catch (_: Exception) {
-                // Best effort rollback of only documents created in this export.
-            }
+        try {
+            DocumentFile.fromSingleUri(context, destinationUri)?.delete()
+        } catch (_: Exception) {
+            // Best-effort cleanup for an incomplete output document.
         }
         if (error is IOException) throw error
-        throw IOException("A exportação falhou e o Núcleo tentou remover os arquivos criados nesta operação.", error)
+        throw IOException("A exportação ZIP falhou. O Núcleo tentou remover o arquivo incompleto.", error)
     }
-
-    return "Código-fonte exportado para '$folderName' (${staged.files.size} arquivos). Build e APK continuam pendentes."
 }
 
-private fun safeFolderName(raw: String): String =
-    raw.map { character ->
+private fun safeZipFilename(raw: String): String {
+    val base = raw.map { character ->
         if (character.isLetterOrDigit() || character in listOf(' ', '-', '_', '.')) character else '-'
     }.joinToString("")
         .trim()
         .trim('.')
-        .take(60)
+        .take(55)
         .ifBlank { "nucleo-project" }
-
-private fun mimeType(filename: String): String = when (filename.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
-    "json" -> "application/json"
-    "xml" -> "application/xml"
-    "html" -> "text/html"
-    "css" -> "text/css"
-    "js", "mjs" -> "text/javascript"
-    "svg" -> "image/svg+xml"
-    else -> "text/plain"
+    return "$base.zip"
 }
-
-private fun sha256(bytes: ByteArray): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(bytes)
-        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
 private const val MAX_VISIBLE_FILES = 40
