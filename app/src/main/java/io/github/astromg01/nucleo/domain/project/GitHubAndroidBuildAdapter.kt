@@ -496,7 +496,7 @@ class GitHubAndroidBuildAdapter(
         private const val SOURCE_ARCHIVE_PATH = "nucleo-source.zip"
         private const val WORKFLOW_FILE = "nucleo-android-build.yml"
         private const val ARTIFACT_NAME = "nucleo-android-apk"
-        private const val MAX_SOURCE_ARCHIVE_BYTES = 4L * 1024L * 1024L
+        private const val MAX_SOURCE_ARCHIVE_BYTES = 8L * 1024L * 1024L
         private const val MAX_ARTIFACT_ARCHIVE_BYTES = 160L * 1024L * 1024L
         private const val MAX_APK_BYTES = 120L * 1024L * 1024L
         private const val MAX_POLL_ATTEMPTS = 48
