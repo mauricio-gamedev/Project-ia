@@ -2,10 +2,14 @@ package io.github.astromg01.nucleo.ui.project
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.IBinder
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +71,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.Files
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -92,6 +97,9 @@ fun ProjectFactoryScreen(container: AppContainer) {
     var previewLoading by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Descreve o projeto e gera um primeiro rascunho revisável.") }
     var statusIsError by remember { mutableStateOf(false) }
+    var hasAllFilesAccess by remember {
+        mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager())
+    }
 
     fun discardCurrentDraft(showStatus: Boolean = false) {
         val previous = stagedProject ?: return
@@ -152,6 +160,40 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     exporting = false
                 }
             }
+        }
+    }
+
+    val allFilesAccessLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
+        hasAllFilesAccess = allowed
+        val staged = stagedProject
+        if (allowed && staged != null && !exporting && !generating) {
+            exporting = true
+            status = "Permissão concedida. Exportando ZIP diretamente para Downloads…"
+            statusIsError = false
+            scope.launch {
+                try {
+                    status = withContext(Dispatchers.IO) {
+                        exportStagedProjectWithAllFilesAccess(context, staged)
+                    }
+                    statusIsError = false
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status = error.message ?: "Não foi possível exportar para Downloads."
+                    statusIsError = true
+                } finally {
+                    exporting = false
+                }
+            }
+        } else if (!allowed) {
+            status = "O Android ainda não concedeu acesso a todos os arquivos. Ative a permissão e volte ao Núcleo."
+            statusIsError = true
+        } else {
+            status = "Acesso aos arquivos autorizado. Toque em Exportar direto para Downloads para continuar."
+            statusIsError = false
         }
     }
 
@@ -415,6 +457,63 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     }
                     OutlinedButton(
                         onClick = {
+                            when {
+                                Build.VERSION.SDK_INT < Build.VERSION_CODES.R -> {
+                                    status = "A exportação direta requer Android 11 ou superior. Use o botão de salvar ZIP pelo seletor."
+                                    statusIsError = true
+                                }
+                                !Environment.isExternalStorageManager() -> {
+                                    try {
+                                        status = "Ative ‘Permitir gerenciamento de todos os arquivos’ para o Núcleo AI na tela do Android que vai abrir."
+                                        statusIsError = false
+                                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        allFilesAccessLauncher.launch(intent)
+                                    } catch (error: Exception) {
+                                        status = "Não foi possível abrir a tela de permissão de arquivos: ${error.message ?: "erro desconhecido"}"
+                                        statusIsError = true
+                                    }
+                                }
+                                !exporting && !generating -> {
+                                    exporting = true
+                                    status = "Exportando ZIP diretamente para Download/NucleoAIProjects…"
+                                    statusIsError = false
+                                    val stagedNow = staged
+                                    scope.launch {
+                                        try {
+                                            status = withContext(Dispatchers.IO) {
+                                                exportStagedProjectWithAllFilesAccess(context, stagedNow)
+                                            }
+                                            statusIsError = false
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (error: Exception) {
+                                            status = error.message ?: "Não foi possível exportar para Downloads."
+                                            statusIsError = true
+                                        } finally {
+                                            exporting = false
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !exporting && !generating,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            if (exporting) "Exportando ZIP…" else if (hasAllFilesAccess)
+                                "Exportar direto para Downloads (acesso total)"
+                            else "Permitir acesso total aos arquivos e exportar",
+                        )
+                    }
+                    Text(
+                        "Esta opção abre a permissão especial do Android; ela não é uma permissão de diálogo normal. Quando autorizada, o ZIP é salvo diretamente em Download/NucleoAIProjects. O seletor ZIP e o Shizuku continuam disponíveis como alternativas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = {
                             try {
                                 when {
                                     !Shizuku.pingBinder() -> {
@@ -614,6 +713,60 @@ private fun parseProjectDraft(
         description = description,
         files = files,
     )
+}
+
+private fun exportStagedProjectWithAllFilesAccess(
+    context: Context,
+    staged: StagedProject,
+): String {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+        throw SecurityException("O acesso a todos os arquivos ainda não foi autorizado nas configurações do Android.")
+    }
+    val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    if (!downloads.exists() && !downloads.mkdirs()) {
+        throw IOException("O Android não conseguiu criar a pasta pública Download.")
+    }
+    val canonicalDownloads = downloads.canonicalFile
+    if (!canonicalDownloads.isDirectory) {
+        throw IOException("A pasta Download não está disponível.")
+    }
+
+    val requestedDirectory = File(canonicalDownloads, "NucleoAIProjects")
+    if (Files.isSymbolicLink(requestedDirectory.toPath())) {
+        throw IOException("A pasta NucleoAIProjects não pode ser um link simbólico.")
+    }
+    if (!requestedDirectory.exists() && !requestedDirectory.mkdirs()) {
+        throw IOException("Não foi possível criar Download/NucleoAIProjects.")
+    }
+    val directory = requestedDirectory.canonicalFile
+    if (!directory.isDirectory || directory.parentFile != canonicalDownloads) {
+        throw IOException("O destino saiu da pasta Download autorizada.")
+    }
+
+    val baseName = safeZipFilename(staged.name).removeSuffix(".zip")
+    var destination = File(directory, "$baseName.zip")
+    var suffix = 2
+    while (destination.exists()) {
+        destination = File(directory, "$baseName-$suffix.zip")
+        suffix++
+        if (suffix > 1000) throw IOException("Não foi possível encontrar um nome de arquivo livre.")
+    }
+    val temporary = File.createTempFile(".nucleo-export-", ".part", directory)
+    try {
+        val written = ProjectFactory().writeZip(staged, FileOutputStream(temporary))
+        if (written != staged.files.size || temporary.length() <= 0L) {
+            throw IOException("O ZIP gerado não contém todos os arquivos esperados.")
+        }
+        Files.move(temporary.toPath(), destination.toPath())
+        return "Projeto exportado com $written arquivos em: ${destination.absolutePath}. O código ainda precisa ser extraído e testado."
+    } catch (cancelled: CancellationException) {
+        temporary.delete()
+        throw cancelled
+    } catch (error: Exception) {
+        temporary.delete()
+        if (error is IOException || error is SecurityException) throw error
+        throw IOException("Falha na exportação direta para Download/NucleoAIProjects.", error)
+    }
 }
 
 private fun exportStagedProjectZip(
