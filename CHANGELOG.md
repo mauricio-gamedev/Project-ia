@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0-alpha — 2026-10-27
+
+### Android Project Factory
+- Added deterministic completion of missing Android Gradle/Manifest metadata using a tested Kotlin/Compose base, rather than relying on the model to remember every boilerplate file.
+- Repairs invalid root/app Gradle scaffolding, retains literal declared dependencies where possible, adds a launcher activity when no Android Activity is detected, and preserves common requested permissions when repairing the manifest.
+- Increases Android generation output budget and strengthens the prompt to request a coherent, functional app with a launcher activity linked to the manifest.
+- Adds tests for generated scaffolding, manifest permissions, dependency retention, activity discovery, and non-Android profile behavior.
+
+### Cloud APK builds
+- Added an opt-in adapter for building Android projects in a user-owned private GitHub repository using GitHub Actions, JDK 17, Android SDK 36, and a pinned Gradle 8.13 distribution.
+- Adds a private repository/token setup screen, separate per-build consent, remote build status, a verified APK artifact download, and Save APK through Android's document picker.
+- The token is saved encrypted in Android Keystore-backed storage and never sent to the configured AI model. The remote builder refuses public repositories and does not overwrite an unrelated workflow.
+- The build runs with read-only GitHub repository permissions, executes the generated Gradle scripts only after explicit consent, validates the APK and checksum, and reports the run link on failure. APK output is debug-signed and is not a Play Store release.
+
+### Chat capability accuracy
+- Updates the chat system instructions and home-screen feature list to distinguish source generation from actual APK compilation and to stop claiming APK generation is generally impossible.
+
+### Validation
+- New unit tests cover Android project scaffolding and its main structural cases. The current source revision must pass Android unit tests, build and artifact verification before use.
+- Cloud APK building requires a user-owned private repository and a fine-grained token restricted to it with Contents, Actions and Workflows read/write permissions. GitHub Actions quota/network availability and generated code quality remain external constraints.
+
+# Changelog
+
 ## 0.5.0-alpha — 2026-10-27
 
 ### Descoberta de modelos
