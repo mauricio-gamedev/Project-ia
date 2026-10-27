@@ -493,6 +493,8 @@ fun ProjectFactoryScreen(container: AppContainer) {
                             }
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
+                            builtApk = null
+                            buildConsent = false
                             val scaffoldNote = if (requestedProfile == ProjectProfile.ANDROID_APP) {
                                 buildString {
                                     val added = scaffold.addedPaths.size
@@ -1523,6 +1525,80 @@ private suspend fun bindShizukuExportService(context: Context): BoundShizukuExpo
             }
         }
     }
+}
+
+private const val GITHUB_BUILD_TOKEN_ID = "github_android_build"
+
+private fun safeApkFilename(raw: String): String {
+    val base = raw.map { character ->
+        if (character.isLetterOrDigit() || character in listOf(' ', '-', '_', '.')) character else '-'
+    }.joinToString("")
+        .trim()
+        .trim('.')
+        .removeSuffix(".zip")
+        .take(55)
+        .ifBlank { "nucleo-app" }
+    return "$base.apk"
+}
+
+private fun copyBuiltApkToUri(
+    context: Context,
+    destinationUri: Uri,
+    artifact: BuiltAndroidArtifact,
+) {
+    if (!artifact.file.isFile || artifact.file.length() <= 0L) {
+        throw IOException("O APK compilado não está disponível no cache.")
+    }
+    val preCopyDigest = sha256Of(artifact.file)
+    if (!preCopyDigest.equals(artifact.sha256, ignoreCase = true)) {
+        throw IOException("A integridade do APK mudou antes de salvar. Compile novamente.")
+    }
+    try {
+        val input = FileInputStream(artifact.file)
+        val output = context.contentResolver.openOutputStream(destinationUri, "w")
+            ?: throw IOException("O Android não conseguiu abrir o destino escolhido.")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        input.use { source ->
+            output.use { destination ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val count = source.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > 120L * 1024L * 1024L) throw IOException("O APK excedeu o limite de cópia.")
+                    digest.update(buffer, 0, count)
+                    destination.write(buffer, 0, count)
+                }
+                destination.flush()
+            }
+        }
+        val copiedDigest = digest.digest().joinToString("") { "%02x".format(it) }
+        if (!copiedDigest.equals(artifact.sha256, ignoreCase = true)) {
+            throw IOException("O SHA-256 do APK salvo não corresponde ao artefato validado.")
+        }
+    } catch (error: Exception) {
+        try {
+            DocumentFile.fromSingleUri(context, destinationUri)?.delete()
+        } catch (_: Exception) {
+            // Best effort: a document provider may not allow deleting the partial output.
+        }
+        if (error is IOException) throw error
+        throw IOException("Não foi possível gravar o APK no destino escolhido.", error)
+    }
+}
+
+private fun sha256Of(file: File): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    FileInputStream(file).use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 private const val SHIZUKU_PERMISSION_REQUEST_CODE = 4107
