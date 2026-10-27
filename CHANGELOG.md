@@ -14,7 +14,8 @@
 
 ### Validation
 - Unit tests cover catalog JSON parsing, duplicate/malformed entries, and the distinction between explicitly zero pricing and unknown pricing.
-- Stable package identity and signing are deliberately deferred until the major app changes are validated. A same-package update also requires the exact same signing certificate; Android rejects APKs signed with a different key.
+- Added optional stable-signing support in Gradle and CI using GitHub Actions Secrets. If the secrets are absent, CI warns that its debug APK uses a temporary signer and must not be assumed to update an existing installation.
+- A same-package update requires the exact same signing certificate. The older 0.4.0-alpha artifact and temporary 0.5.0-alpha artifact have different certificate fingerprints, so transition to the new stable signer requires a one-time clean reinstall; app-private history and saved credentials will not survive uninstalling the old test build.
 
 ## 0.4.0-alpha — 2026-10-27
 

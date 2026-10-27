@@ -7,6 +7,16 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val stableKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+val stableStorePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
+val stableKeyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
+val stableKeyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
+val stableSigningConfigured = !stableKeystorePath.isNullOrBlank() &&
+    !stableStorePassword.isNullOrBlank() &&
+    !stableKeyAlias.isNullOrBlank() &&
+    !stableKeyPassword.isNullOrBlank() &&
+    file(stableKeystorePath).isFile
+
 android {
     namespace = "io.github.astromg01.nucleo"
     compileSdk = 36
@@ -21,14 +31,31 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        if (stableSigningConfigured) {
+            create("stable") {
+                storeFile = file(stableKeystorePath!!)
+                storePassword = stableStorePassword!!
+                keyAlias = stableKeyAlias!!
+                keyPassword = stableKeyPassword!!
+            }
+        }
+    }
+
     buildTypes {
         debug {
+            if (stableSigningConfigured) {
+                signingConfig = signingConfigs.getByName("stable")
+            }
             // Install this one-off test build beside previous CI APKs so signature changes
             // cannot force the user to uninstall the working app and lose its local data.
             applicationIdSuffix = ".debugautorouter"
             versionNameSuffix = "-autorouter"
         }
         release {
+            if (stableSigningConfigured) {
+                signingConfig = signingConfigs.getByName("stable")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

@@ -50,6 +50,10 @@ Também ainda não há busca semântica por embeddings, indexação incremental 
 
 Requisitos oficiais de compatibilidade: [AGP 8.13](https://developer.android.com/build/releases/agp-8-13-0-release-notes) e [Kotlin/Gradle](https://kotlinlang.org/docs/gradle-configure-project.html). O projeto usa JDK 17 e Android SDK Platform 36.
 
+## Assinatura e atualização do APK
+
+Consulte [docs/ANDROID_SIGNING.md](docs/ANDROID_SIGNING.md) para configurar uma chave persistente de assinatura via GitHub Actions Secrets. Sem essa configuração, o CI ainda pode compilar um APK de depuração, mas a assinatura temporária do runner não garante atualização por cima da instalação existente.
+
 ## Como abrir e compilar
 
 1. Abra a pasta raiz `nucleo-ai-android` no Android Studio.

@@ -23,6 +23,10 @@ jobs:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       GRADLE_VERSION: "8.13"
       GRADLE_SHA256: "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+      ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+      ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+      ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+      ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -64,6 +68,23 @@ jobs:
           unzip -q /tmp/gradle-bin.zip -d /tmp/nucleo-gradle
           "/tmp/nucleo-gradle/gradle-${GRADLE_VERSION}/bin/gradle" --version
 
+      - name: Configure stable signing key when secrets are available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ANDROID_SIGNING_KEYSTORE_BASE64:-}" && -n "${ANDROID_SIGNING_STORE_PASSWORD:-}" && -n "${ANDROID_SIGNING_KEY_ALIAS:-}" && -n "${ANDROID_SIGNING_KEY_PASSWORD:-}" ]]; then
+            keystore="$RUNNER_TEMP/nucleo-ai-stable-signing.jks"
+            printf '%s' "$ANDROID_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            test -s "$keystore"
+            keytool -list -keystore "$keystore" -storepass "$ANDROID_SIGNING_STORE_PASSWORD" -alias "$ANDROID_SIGNING_KEY_ALIAS" >/dev/null
+            echo "ANDROID_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=stable" >> "$GITHUB_ENV"
+            echo "Stable signing key is configured."
+          else
+            echo "SIGNING_MODE=temporary-debug" >> "$GITHUB_ENV"
+            echo "::warning::Stable signing secrets are missing. The APK uses a temporary runner debug certificate and cannot be assumed to update an existing installation."
+          fi
+
       - name: Run unit tests and build debug APK
         run: /tmp/nucleo-gradle/gradle-${GRADLE_VERSION}/bin/gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
 
@@ -74,6 +95,14 @@ jobs:
           apk="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+          if [[ "$SIGNING_MODE" == "stable" ]]; then
+            apk_cert="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ' :\r\n' | tr '[:upper:]' '[:lower:]')"
+            key_cert="$(keytool -list -v -keystore "$ANDROID_KEYSTORE_PATH" -storepass "$ANDROID_SIGNING_STORE_PASSWORD" -alias "$ANDROID_SIGNING_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ' :\r\n' | tr '[:upper:]' '[:lower:]')"
+            test -n "$apk_cert" && test "$apk_cert" = "$key_cert" || { echo "APK signer does not match the configured keystore" >&2; exit 1; }
+            echo "- Signing: stable keystore verified" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Signing: temporary Android debug certificate; no in-place update guarantee" >> "$GITHUB_STEP_SUMMARY"
+          fi
           sha256sum "$apk" | tee "$apk.sha256"
           echo "## Núcleo AI debug APK" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: `$GITHUB_SHA`" >> "$GITHUB_STEP_SUMMARY"
