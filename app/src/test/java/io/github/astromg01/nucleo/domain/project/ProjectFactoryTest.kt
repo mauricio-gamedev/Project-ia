@@ -1,8 +1,11 @@
 package io.github.astromg01.nucleo.domain.project
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.util.zip.ZipInputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -265,6 +268,55 @@ class ProjectFactoryTest {
             )
         }
         assertTrue(error.message!!.contains(ProjectFactory.MAX_DESCRIPTION_CHARS.toString()))
+    }
+
+    @Test
+    fun `exports a ZIP with the staged paths and contents`() {
+        withTempDirectory { temp ->
+            val staged = factory.stage(
+                ProjectDraft(
+                    name = "Zip Test",
+                    profile = ProjectProfile.GENERIC,
+                    files = listOf(
+                        GeneratedProjectFile("index.html", "<h1>Hi</h1>"),
+                        GeneratedProjectFile("assets/style.css", "body { color: black; }"),
+                    ),
+                ),
+                File(temp, "staging"),
+            )
+            val bytes = ByteArrayOutputStream()
+            val count = factory.writeZip(staged, bytes)
+
+            assertEquals(2, count)
+            val entries = linkedMapOf<String, String>()
+            ZipInputStream(ByteArrayInputStream(bytes.toByteArray())).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    entries[entry.name] = zip.readBytes().toString(Charsets.UTF_8)
+                    zip.closeEntry()
+                }
+            }
+            assertEquals("<h1>Hi</h1>", entries["index.html"])
+            assertEquals("body { color: black; }", entries["assets/style.css"])
+        }
+    }
+
+    @Test
+    fun `refuses ZIP export when staged file contents were changed`() {
+        withTempDirectory { temp ->
+            val staged = factory.stage(
+                ProjectDraft(
+                    name = "Tampered",
+                    profile = ProjectProfile.GENERIC,
+                    files = listOf(GeneratedProjectFile("README.md", "original")),
+                ),
+                File(temp, "staging"),
+            )
+            File(staged.directory, "README.md").writeText("changed")
+            assertThrows(IOException::class.java) {
+                factory.writeZip(staged, ByteArrayOutputStream())
+            }
+        }
     }
 
     private fun draftOf(path: String, content: String = "text") = ProjectDraft(
