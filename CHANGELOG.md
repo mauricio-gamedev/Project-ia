@@ -7,6 +7,8 @@
 - Added profile-aware manifest validation for Android, web, Python, and generic source projects.
 - Added private staging with path traversal, collision, secret-file, per-file size, file-count, and total-size checks.
 - Added per-file SHA-256 evidence and explicit source export through Android Storage Access Framework, without executing generated scripts.
+- Added a bounded, selectable source preview for each staged file; previews re-check path safety, UTF-8 decoding, file size, and SHA-256 integrity.
+- Added guarded staging cleanup and regression tests proving that discard refuses directories outside the authorized staging root.
 - Added regression tests for staging, unsafe paths, collisions, secret files, size limits, and profile requirements.
 
 ### Status
