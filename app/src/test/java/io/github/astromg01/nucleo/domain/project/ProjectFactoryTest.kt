@@ -240,6 +240,33 @@ class ProjectFactoryTest {
         }
     }
 
+    @Test
+    fun `accepts project descriptions longer than the previous 1000 character limit`() {
+        factory.validate(
+            ProjectDraft(
+                name = "Long Description",
+                profile = ProjectProfile.GENERIC,
+                description = "a".repeat(2_000),
+                files = listOf(GeneratedProjectFile("README.md", "# Test")),
+            ),
+        )
+    }
+
+    @Test
+    fun `rejects descriptions above the configured character limit`() {
+        val error = assertThrows(ProjectDraftValidationException::class.java) {
+            factory.validate(
+                ProjectDraft(
+                    name = "Too Long",
+                    profile = ProjectProfile.GENERIC,
+                    description = "a".repeat(ProjectFactory.MAX_DESCRIPTION_CHARS + 1),
+                    files = listOf(GeneratedProjectFile("README.md", "# Test")),
+                ),
+            )
+        }
+        assertTrue(error.message!!.contains(ProjectFactory.MAX_DESCRIPTION_CHARS.toString()))
+    }
+
     private fun draftOf(path: String, content: String = "text") = ProjectDraft(
         name = "Validation",
         profile = ProjectProfile.GENERIC,
