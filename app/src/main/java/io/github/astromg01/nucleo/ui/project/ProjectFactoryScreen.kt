@@ -373,7 +373,14 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
-                            status = error.message ?: "Não foi possível gerar o projeto."
+                            status = if (
+                                error is java.net.SocketTimeoutException ||
+                                (error is java.io.IOException && error.message?.contains("timeout", ignoreCase = true) == true)
+                            ) {
+                                "O modelo demorou demais para responder. Aumentei o limite de espera para 210 segundos; tenta novamente ou seleciona outro modelo gratuito no OpenRouter."
+                            } else {
+                                error.message ?: "Não foi possível gerar o projeto."
+                            }
                             statusIsError = true
                         } finally {
                             generating = false
