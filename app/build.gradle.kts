@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.astromg01.nucleo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.3.1-alpha"
+        versionCode = 5
+        versionName = "0.3.2-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -45,6 +45,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true
     }
 
     packaging {
@@ -71,6 +72,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("androidx.documentfile:documentfile:1.1.0")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
     implementation(composeBom)
