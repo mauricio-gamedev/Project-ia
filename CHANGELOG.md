@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2-alpha — 2026-10-27
+
+### Exportação e armazenamento
+- Added an optional Shizuku UserService path to export verified project ZIPs directly to `Download/NucleoAIProjects`.
+- The privileged service receives only ZIP bytes in bounded chunks, checks file-name/path safety, never reads the app-private staging directory, and never invokes a shell command.
+- Kept Android CreateDocument as a normal-user fallback; it intentionally uses a per-file URI grant rather than requesting broad storage permission.
+- Bumped Android versionCode to 5 and versionName to 0.3.2-alpha.
+
+### Validation status
+- Shizuku installation/authorization and direct write to Downloads still require device-level testing on a phone where Shizuku is started.
+- Generated source is exported but not automatically executed or compiled.
+
 ## 0.3.0-alpha — 2026-10-21
 
 ### Project Factory
