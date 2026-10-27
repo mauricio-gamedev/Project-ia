@@ -796,7 +796,8 @@ private fun SettingsScreen(container: AppContainer) {
                                         } catch (error: Exception) {
                                             status = when (error) {
                                                 is io.github.astromg01.nucleo.core.ai.ProviderConfigurationException,
-                                                is io.github.astromg01.nucleo.core.ai.ProviderHttpException ->
+                                                is io.github.astromg01.nucleo.core.ai.ProviderHttpException,
+                                                is io.github.astromg01.nucleo.core.ai.ModelRoutingException ->
                                                     "Teste falhou: ${error.message ?: "erro do provedor"}"
                                                 is java.io.IOException -> "Teste falhou: confira a conexão de rede."
                                                 else -> "Teste falhou. Confira endpoint, modelo e chave; detalhes brutos foram omitidos por segurança."
