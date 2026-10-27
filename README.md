@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Codinome provisório · versão 0.3.2-alpha · exportação via Shizuku opcional**
+> **Codinome provisório · versão 0.4.0-alpha · AutoRouter + revisão de código**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
@@ -13,6 +13,10 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Seleção de pastas de projeto por Storage Access Framework, com permissão de leitura persistente limitada à pasta escolhida.
 - Chat com histórico persistente e contexto de memórias recentes.
 - Adaptador para provedores que exponham endpoint compatível com `POST /chat/completions`.
+- AutoRouter com perfis alternativos, credenciais cifradas individualmente, fallback em cotas/timeouts e cooldown por rota.
+- Context handoff por orçamento aproximado: preserva instruções, pedido original e mensagens recentes ao alternar de modelo.
+- Revisão estática assistida por IA e propostas de reparo em staging separado, com confirmação explícita e sem executar o código.
+- Gateway FreeLLMAPI/Termux opcional em loopback; HTTP sem criptografia continua bloqueado para hosts remotos.
 - Chave de API cifrada com AES-GCM; a chave de criptografia é gerenciada pelo Android Keystore.
 - Tarefas de planejamento executadas em WorkManager, com estado persistido, checkpoints de conclusão e tentativas limitadas para falhas transitórias de rede.
 - **NúcleoLang 0.2 alfa (fundação expansível)**: lexer, parser, AST e interpretador Kotlin autorais para variáveis, funções, condições, loops, listas mutáveis, indexação, bibliotecas iniciais e funções de host registradas explicitamente, com orçamento de execução e sem shell/rede/arquivos embutidos.
