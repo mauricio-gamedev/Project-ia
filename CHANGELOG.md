@@ -11,6 +11,7 @@
 - Added guarded staging cleanup and regression tests proving that discard refuses directories outside the authorized staging root.
 - Requested provider JSON-object response mode for generation and added an HTTP 400 compatibility retry for OpenAI-style endpoints that reject the optional parameter.
 - Improved malformed-manifest diagnostics to distinguish incomplete output from likely unescaped quotes or line breaks.
+- Increased the project-description limit from 1,000 to 4,000 characters and added a visible counter to prevent avoidable validation failures.
 - Added regression tests for staging, unsafe paths, collisions, secret files, size limits, and profile requirements.
 
 ### Status
