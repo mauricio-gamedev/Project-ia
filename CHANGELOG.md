@@ -21,8 +21,6 @@
 - New unit tests cover Android project scaffolding and its main structural cases. The current source revision must pass Android unit tests, build and artifact verification before use.
 - Cloud APK building requires a user-owned private repository and a fine-grained token restricted to it with Contents, Actions and Workflows read/write permissions. GitHub Actions quota/network availability and generated code quality remain external constraints.
 
-# Changelog
-
 ## 0.5.0-alpha — 2026-10-27
 
 ### Descoberta de modelos
