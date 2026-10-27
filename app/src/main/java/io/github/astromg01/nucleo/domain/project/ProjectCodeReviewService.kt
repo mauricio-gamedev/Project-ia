@@ -165,6 +165,9 @@ class ProjectCodeReviewService(
         require(snapshot.canProposeCompleteRepairs) {
             "A correção completa exige todos os arquivos e conteúdos sem truncamento. Reduza o projeto ou revise arquivos grandes separadamente."
         }
+        require(!report.partial) {
+            "A revisão usou arquivos ou trechos parciais. Faça uma revisão completa antes de propor correções."
+        }
         require(report.findings.isNotEmpty()) { "A revisão não encontrou problemas para corrigir." }
         val findings = report.findings.joinToString("\n") { finding ->
             "- [${finding.severity}] ${finding.path}${finding.line?.let { ":$it" }.orEmpty()}: ${finding.problem} Sugestão: ${finding.recommendation}"
