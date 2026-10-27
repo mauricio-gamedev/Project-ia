@@ -77,8 +77,10 @@ class PlanningWorker(
                 taskType = AiTaskType.PLANNING,
             )
             val response = container.modelRouter.generate(request)
-            container.database.withTransaction {
-                val freshTask = taskDao.getById(taskId) ?: task
+            val committed = container.database.withTransaction {
+                val freshTask = taskDao.getById(taskId) ?: return@withTransaction false
+                // A cancellation is terminal. Do not let a late provider response resurrect a task.
+                if (freshTask.status == TaskStatus.CANCELLED.name) return@withTransaction false
                 taskDao.update(
                     freshTask.copy(
                         status = TaskStatus.COMPLETED.name,
@@ -90,19 +92,21 @@ class PlanningWorker(
                 )
                 container.database.memoryDao().insert(
                     MemoryEntity(
-                        projectId = task.projectId,
-                        sourceTaskId = task.id,
+                        projectId = freshTask.projectId,
+                        sourceTaskId = freshTask.id,
                         kind = "TASK_PLAN",
-                        title = "Plano: ${task.title}",
+                        title = "Plano: ${freshTask.title}",
                         content = response.text,
                     ),
                 )
+                true
             }
-            Result.success()
+            if (committed) Result.success() else Result.failure()
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
             val freshTask = taskDao.getById(taskId) ?: task
+            if (freshTask.status == TaskStatus.CANCELLED.name) return Result.failure()
             val transientProviderFailure = error is java.io.IOException ||
                 (error is ProviderHttpException && error.isRetryable) ||
                 (error is ModelRoutingException && error.isRetryable)

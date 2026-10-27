@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0-alpha — 2026-10-27
+
+### Descoberta de modelos
+- Added an on-demand OpenRouter text-model catalog with search, a published-zero-price filter, context-window details, and published input/output price estimates.
+- Selecting a catalog entry only fills the primary-provider form; it does not save settings or silently reuse a credential after the provider/endpoint changes.
+- Catalog requests never send credentials saved for unrelated provider hosts. Models marked at zero price are not advertised as guaranteed-free or unlimited.
+
+### Consistência da interface e dos dados
+- Added a home-screen activity timeline sourced from persisted project, task, memory, and chat records, sorted by their stored update/creation timestamps.
+- Guarded task completion with a database transaction and preserved cancellation if a model response arrives after the task is cancelled; plan memory and completion state commit together.
+- Provider settings now require a new key before saving a changed provider identity/endpoint, preventing silent reuse of an unrelated stored credential.
+
+### Validation
+- Unit tests cover catalog JSON parsing, duplicate/malformed entries, and the distinction between explicitly zero pricing and unknown pricing.
+- Stable package identity and signing are deliberately deferred until the major app changes are validated. A same-package update also requires the exact same signing certificate; Android rejects APKs signed with a different key.
+
 ## 0.4.0-alpha — 2026-10-27
 
 ### AutoRouter e continuidade

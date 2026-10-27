@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Codinome provisório · versão 0.4.0-alpha · AutoRouter + revisão de código**
+> **Codinome provisório · versão 0.5.0-alpha · catálogo de modelos + timeline sincronizada**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
@@ -14,9 +14,13 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Chat com histórico persistente e contexto de memórias recentes.
 - Adaptador para provedores que exponham endpoint compatível com `POST /chat/completions`.
 - AutoRouter com perfis alternativos, credenciais cifradas individualmente, fallback em cotas/timeouts e cooldown por rota.
+- Catálogo sob demanda da OpenRouter com pesquisa, filtro por preço publicado zerado, janela de contexto e estimativa de preço de entrada/saída; selecionar um modelo apenas preenche o formulário.
+- Linha do tempo inicial baseada em registros Room de projetos, tarefas, memórias e conversas, ordenados por timestamps persistidos.
+- Conclusão de tarefas e criação da memória do plano em uma transação única, respeitando cancelamentos que ocorram durante uma chamada remota.
+- Bloqueio de salvamento quando o provedor/endpoint mudou, mas uma nova chave ainda não foi informada.
 - Context handoff por orçamento aproximado: preserva instruções, pedido original e mensagens recentes ao alternar de modelo.
 - Revisão estática assistida por IA e propostas de reparo em staging separado, com confirmação explícita e sem executar o código.
-- Gateway FreeLLMAPI/Termux opcional em loopback; HTTP sem criptografia continua bloqueado para hosts remotos.
+- Endpoints remotos precisam usar HTTPS; credenciais não são compartilhadas com o catálogo da OpenRouter quando a rota configurada é de outro host.
 - Chave de API cifrada com AES-GCM; a chave de criptografia é gerenciada pelo Android Keystore.
 - Tarefas de planejamento executadas em WorkManager, com estado persistido, checkpoints de conclusão e tentativas limitadas para falhas transitórias de rede.
 - **NúcleoLang 0.2 alfa (fundação expansível)**: lexer, parser, AST e interpretador Kotlin autorais para variáveis, funções, condições, loops, listas mutáveis, indexação, bibliotecas iniciais e funções de host registradas explicitamente, com orçamento de execução e sem shell/rede/arquivos embutidos.
@@ -101,5 +105,5 @@ O código de aplicação nesta base foi escrito de forma independente para o Nú
 1. **Concluído nesta alpha:** perfis de provedor alternativos, failover/cooldowns, seleção por tipo de tarefa, transferência de contexto com limites e revisão estática por IA com propostas de reparo isoladas.
 2. **Próximo:** validação de ponta a ponta no dispositivo, testes de compatibilidade dos provedores e visibilidade de cotas/cooldowns na interface.
 3. **Depois:** executor de lint/test/build em ambiente isolado, com limites de recursos, cancelamento, rede restrita, diff e rollback.
-4. Integrar catálogo/descoberta de modelos e telemetria de qualidade sem assumir que rótulos de capacidade ou cotas gratuitas são garantidos.
+4. **Em andamento nesta alpha:** ampliar descoberta de modelos e provedores compatíveis sem assumir que rótulos de capacidade ou cotas gratuitas são garantidos.
 5. Integrar runtime local após medir memória, velocidade e compatibilidade reais no Android.

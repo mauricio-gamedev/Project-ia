@@ -92,10 +92,20 @@ import io.github.astromg01.nucleo.data.local.ProjectEntity
 import io.github.astromg01.nucleo.data.local.TaskEntity
 import io.github.astromg01.nucleo.data.local.TaskStatus
 import io.github.astromg01.nucleo.data.settings.ProviderConfiguration
+import io.github.astromg01.nucleo.data.settings.OpenRouterCatalogModel
+import io.github.astromg01.nucleo.data.settings.OpenRouterModelCatalog
 import io.github.astromg01.nucleo.ui.NucleoTheme
 import io.github.astromg01.nucleo.ui.lang.LangPlaygroundScreen
 import io.github.astromg01.nucleo.ui.project.ProjectFactoryScreen
 import kotlinx.coroutines.launch
+
+private data class TimelineEntry(
+    val id: String,
+    val category: String,
+    val title: String,
+    val detail: String,
+    val timestamp: Long,
+)
 
 private enum class AppScreen(val label: String) {
     HOME("Início"), CHAT("Conversa"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), FACTORY("Criar projeto"), SETTINGS("Configurações")
@@ -118,7 +128,62 @@ private fun NucleoShell(container: AppContainer) {
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
     val memories by container.database.memoryDao().observeAll().collectAsState(initial = emptyList())
+    val chatMessages by container.database.chatMessageDao().observeSession("main").collectAsState(initial = emptyList())
     val config = container.providerPreferences.load()
+    val recentActivities = remember(projects, tasks, memories, chatMessages) {
+        buildList {
+            projects.forEach { project ->
+                add(TimelineEntry(
+                    id = "project:${project.id}",
+                    category = "Projeto",
+                    title = project.name,
+                    detail = project.description.ifBlank { "Adicionado à biblioteca de projetos." }.take(120),
+                    timestamp = project.updatedAt,
+                ))
+            }
+            tasks.forEach { task ->
+                add(TimelineEntry(
+                    id = "task:${task.id}",
+                    category = "Tarefa",
+                    title = task.title,
+                    detail = "Estado: " + when (task.status) {
+                        TaskStatus.QUEUED.name -> "na fila"
+                        TaskStatus.RUNNING.name -> "executando (${task.progress}%)"
+                        TaskStatus.COMPLETED.name -> "plano concluído"
+                        TaskStatus.CANCELLED.name -> "cancelada"
+                        else -> "bloqueada — ${task.errorMessage ?: "requer atenção"}"
+                    },
+                    timestamp = task.updatedAt,
+                ))
+            }
+            memories.forEach { memory ->
+                add(TimelineEntry(
+                    id = "memory:${memory.id}",
+                    category = "Memória",
+                    title = memory.title,
+                    detail = memory.content.take(120),
+                    timestamp = memory.updatedAt,
+                ))
+            }
+            chatMessages.takeLast(30).forEach { message ->
+                val category = when (message.role) {
+                    "user" -> "Conversa · você"
+                    "assistant" -> "Conversa · ${message.provider ?: "Núcleo AI"}"
+                    "assistant_error" -> "Conversa · aviso"
+                    else -> null
+                }
+                if (category != null) {
+                    add(TimelineEntry(
+                        id = "chat:${message.id}",
+                        category = category,
+                        title = message.content.lineSequence().firstOrNull().orEmpty().take(100),
+                        detail = message.content.replace("\n", " ").take(140),
+                        timestamp = message.createdAt,
+                    ))
+                }
+            }
+        }.sortedByDescending { it.timestamp }.take(10)
+    }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri != null) {
@@ -206,6 +271,7 @@ private fun NucleoShell(container: AppContainer) {
                     tasksCount = tasks.size,
                     memoriesCount = memories.size,
                     providerConfigured = config.baseUrl.isNotBlank() && config.modelName.isNotBlank() && container.secretStore.readApiKey() != null,
+                    recentActivities = recentActivities,
                     onNavigate = { screen = it },
                 )
                 AppScreen.CHAT -> ChatScreen(container)
@@ -241,6 +307,7 @@ private fun HomeScreen(
     tasksCount: Int,
     memoriesCount: Int,
     providerConfigured: Boolean,
+    recentActivities: List<TimelineEntry>,
     onNavigate: (AppScreen) -> Unit,
 ) {
     LazyColumn(
@@ -282,6 +349,41 @@ private fun HomeScreen(
                 MetricCard("Projetos", projectsCount.toString(), Icons.Outlined.FolderOpen, Modifier.weight(1f))
                 MetricCard("Tarefas", tasksCount.toString(), Icons.Outlined.TaskAlt, Modifier.weight(1f))
                 MetricCard("Memórias", memoriesCount.toString(), Icons.Outlined.Memory, Modifier.weight(1f))
+            }
+        }
+        item {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Linha do tempo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Atividades recentes sincronizadas com os registros locais de projetos, tarefas, memórias e conversas.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (recentActivities.isEmpty()) {
+                        Text("As atividades vão aparecer aqui conforme você usar o Núcleo AI.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        recentActivities.forEachIndexed { index, activity ->
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(activity.category, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        android.text.format.DateFormat.format("dd/MM HH:mm", activity.timestamp).toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Text(activity.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(activity.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (index < recentActivities.lastIndex) HorizontalDivider()
+                        }
+                    }
+                }
             }
         }
         item {
@@ -706,9 +808,9 @@ private fun NewMemoryDialog(onDismiss: () -> Unit, onSave: (String, String) -> U
 private fun SettingsScreen(container: AppContainer) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val current = remember { container.providerPreferences.load() }
-    var providerName by remember { mutableStateOf(current.providerName) }
-    var baseUrl by remember { mutableStateOf(current.baseUrl) }
+    var savedConfig by remember { mutableStateOf(container.providerPreferences.load()) }
+    var providerName by remember { mutableStateOf(savedConfig.providerName) }
+    var baseUrl by remember { mutableStateOf(savedConfig.baseUrl) }
     var modelName by remember { mutableStateOf(current.modelName) }
     var apiKey by remember { mutableStateOf("") }
     var keySaved by remember { mutableStateOf(container.secretStore.readApiKey() != null) }
@@ -722,6 +824,41 @@ private fun SettingsScreen(container: AppContainer) {
     var fallbackPriority by remember { mutableStateOf("10") }
     var fallbackQualityTier by remember { mutableStateOf("3") }
     var fallbackContextChars by remember { mutableStateOf("64000") }
+    var catalogExpanded by remember { mutableStateOf(false) }
+    var catalogLoading by remember { mutableStateOf(false) }
+    var catalogStatus by remember { mutableStateOf("") }
+    var catalogQuery by remember { mutableStateOf("") }
+    var catalogFreeOnly by remember { mutableStateOf(true) }
+    var catalogModels by remember { mutableStateOf<List<OpenRouterCatalogModel>>(emptyList()) }
+    val requiresNewKey = (
+        providerName.trim() != savedConfig.providerName.trim() ||
+            baseUrl.trim().trimEnd('/') != savedConfig.baseUrl.trim().trimEnd('/')
+        ) && apiKey.isBlank()
+
+    fun refreshCatalog() {
+        if (catalogLoading) return
+        catalogExpanded = true
+        catalogLoading = true
+        catalogStatus = "Consultando o catálogo público da OpenRouter…"
+        scope.launch {
+            try {
+                val configuredHost = runCatching { Uri.parse(baseUrl.trim()).host?.lowercase() }.getOrNull()
+                val savedHost = runCatching { Uri.parse(savedConfig.baseUrl.trim()).host?.lowercase() }.getOrNull()
+                // Never send credentials saved for an unrelated provider to the catalog service.
+                val catalogKey = if (configuredHost == "openrouter.ai" && savedHost == "openrouter.ai") {
+                    apiKey.trim().takeIf { it.isNotBlank() } ?: container.secretStore.readApiKey()
+                } else {
+                    null
+                }
+                catalogModels = OpenRouterModelCatalog().fetch(catalogKey)
+                catalogStatus = "Catálogo atualizado: ${catalogModels.size} modelos de texto."
+            } catch (error: Exception) {
+                catalogStatus = error.message ?: "Não foi possível consultar o catálogo. Confira a conexão e tente novamente."
+            } finally {
+                catalogLoading = false
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -740,13 +877,28 @@ private fun SettingsScreen(container: AppContainer) {
                             value = apiKey,
                             onValueChange = { apiKey = it },
                             label = { Text("Chave de API") },
-                            placeholder = { Text(if (keySaved) "Chave salva — deixe vazio para manter" else "Cole a chave do provedor") },
+                            placeholder = {
+                                Text(
+                                    when {
+                                        requiresNewKey -> "Informe a chave do novo provedor"
+                                        keySaved -> "Chave salva — deixe vazio para manter"
+                                        else -> "Cole a chave do provedor"
+                                    },
+                                )
+                            },
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Text(if (keySaved) "Chave salva no armazenamento cifrado do dispositivo." else "Nenhuma chave salva.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (requiresNewKey) {
+                            Text(
+                                "O provedor ou endpoint mudou. Informe a chave correspondente antes de salvar para não reutilizar credenciais de outro serviço.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Button(
                             onClick = {
                                 val configuration = ProviderConfiguration(providerName, baseUrl, modelName, enabled = true)
@@ -755,6 +907,7 @@ private fun SettingsScreen(container: AppContainer) {
                                     status = validation
                                 } else {
                                     container.providerPreferences.save(configuration)
+                                    savedConfig = configuration
                                     if (apiKey.isNotBlank()) {
                                         container.secretStore.saveApiKey(apiKey.trim())
                                         keySaved = true
@@ -763,6 +916,7 @@ private fun SettingsScreen(container: AppContainer) {
                                     status = "Configuração salva neste dispositivo."
                                 }
                             },
+                            enabled = !requiresNewKey,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Salvar configuração") }
                         OutlinedButton(
@@ -773,6 +927,7 @@ private fun SettingsScreen(container: AppContainer) {
                                     status = validation
                                 } else {
                                     container.providerPreferences.save(configuration)
+                                    savedConfig = configuration
                                     if (apiKey.isNotBlank()) {
                                         container.secretStore.saveApiKey(apiKey.trim())
                                         keySaved = true
@@ -808,7 +963,7 @@ private fun SettingsScreen(container: AppContainer) {
                                     }
                                 }
                             },
-                            enabled = !busy,
+                            enabled = !busy && !requiresNewKey,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (busy) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -822,6 +977,100 @@ private fun SettingsScreen(container: AppContainer) {
                             }) { Text("Remover chave salva") }
                         }
                         if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = if (status.startsWith("Teste falhou")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary)
+                    }
+                }
+            }
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Descobrir modelos · OpenRouter", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Consulta o catálogo online com IDs, janela de contexto e preços publicados. Escolher um modelo só preenche o formulário; a configuração não é salva automaticamente.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                if (catalogExpanded) catalogExpanded = false
+                                else if (catalogModels.isNotEmpty()) catalogExpanded = true
+                                else refreshCatalog()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (catalogExpanded) "Ocultar catálogo" else "Explorar catálogo") }
+                        if (catalogExpanded) {
+                            OutlinedButton(
+                                onClick = { refreshCatalog() },
+                                enabled = !catalogLoading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (catalogLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                else Text("Atualizar catálogo")
+                            }
+                            OutlinedTextField(
+                                value = catalogQuery,
+                                onValueChange = { catalogQuery = it },
+                                label = { Text("Pesquisar modelo") },
+                                placeholder = { Text("Ex.: Qwen, Llama, DeepSeek…") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Checkbox(checked = catalogFreeOnly, onCheckedChange = { catalogFreeOnly = it })
+                                Text("Somente com preço publicado zerado", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (catalogStatus.isNotBlank()) {
+                                Text(
+                                    catalogStatus,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (catalogStatus.startsWith("Não foi") || catalogStatus.startsWith("Catálogo indisponível")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                                )
+                            }
+                            val visibleModels = catalogModels.filter { model ->
+                                val matchesQuery = catalogQuery.isBlank() ||
+                                    model.name.contains(catalogQuery.trim(), ignoreCase = true) ||
+                                    model.id.contains(catalogQuery.trim(), ignoreCase = true)
+                                matchesQuery && (!catalogFreeOnly || model.isListedFree)
+                            }.take(15)
+                            if (!catalogLoading && catalogModels.isNotEmpty() && visibleModels.isEmpty()) {
+                                Text("Nenhum modelo corresponde aos filtros atuais.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            visibleModels.forEach { model ->
+                                HorizontalDivider()
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(model.name, fontWeight = FontWeight.SemiBold)
+                                    Text(model.id, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "Contexto: ${if (model.contextLengthTokens > 0) model.contextLengthTokens.toString() else "não informado"} tokens",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    val priceLabel = when {
+                                        model.isListedFree -> "Preço publicado: US$ 0 · acesso ainda depende da conta e da disponibilidade"
+                                        model.promptPricePerMillionUsd == null || model.completionPricePerMillionUsd == null -> "Preço não informado pelo catálogo"
+                                        else -> "Entrada: US$ ${String.format(java.util.Locale.US, "%.4f", model.promptPricePerMillionUsd)} / 1M tokens · saída: US$ ${String.format(java.util.Locale.US, "%.4f", model.completionPricePerMillionUsd)} / 1M tokens"
+                                    }
+                                    Text(priceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    TextButton(
+                                        onClick = {
+                                            providerName = "OpenRouter"
+                                            baseUrl = "https://openrouter.ai/api/v1"
+                                            modelName = model.id
+                                            status = if (savedConfig.baseUrl.contains("openrouter.ai", ignoreCase = true)) {
+                                                "Modelo selecionado. Confere e salva a configuração antes de usar."
+                                            } else {
+                                                "Modelo selecionado. Informe uma chave da OpenRouter antes de salvar; a chave de outro provedor não será reutilizada."
+                                            }
+                                            catalogStatus = "Selecionado: ${model.name}."
+                                        },
+                                        modifier = Modifier.align(Alignment.End),
+                                    ) { Text("Usar modelo") }
+                                }
+                            }
+                            Text(
+                                "Preço zerado significa preço publicado no catálogo, não garantia de acesso ilimitado ou disponibilidade gratuita.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
