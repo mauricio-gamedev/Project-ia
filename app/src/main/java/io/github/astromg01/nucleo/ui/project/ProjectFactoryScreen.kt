@@ -431,9 +431,12 @@ fun ProjectFactoryScreen(container: AppContainer) {
                 } else if (!remoteConsent) {
                     status = "Confirma o envio do pedido ao provedor antes de gerar o projeto."
                     statusIsError = true
-                } else if (!generating && !exporting) {
+                } else if (!generating && !exporting && !buildingApk && !verifyingBuildTarget) {
                     clearReviewState()
                     discardCurrentDraft()
+                    builtApk?.file?.delete()
+                    builtApk = null
+                    buildConsent = false
                     generating = true
                     status = "A IA está preparando os arquivos; o Núcleo vai completar e validar a estrutura base…"
                     statusIsError = false
@@ -493,6 +496,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                             }
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
+                            builtApk?.file?.delete()
                             builtApk = null
                             buildConsent = false
                             val scaffoldNote = if (requestedProfile == ProjectProfile.ANDROID_APP) {
@@ -1554,12 +1558,11 @@ private fun copyBuiltApkToUri(
         throw IOException("A integridade do APK mudou antes de salvar. Compile novamente.")
     }
     try {
-        val input = FileInputStream(artifact.file)
         val output = context.contentResolver.openOutputStream(destinationUri, "w")
             ?: throw IOException("O Android não conseguiu abrir o destino escolhido.")
         val digest = java.security.MessageDigest.getInstance("SHA-256")
-        input.use { source ->
-            output.use { destination ->
+        output.use { destination ->
+            FileInputStream(artifact.file).use { source ->
                 val buffer = ByteArray(64 * 1024)
                 var total = 0L
                 while (true) {
