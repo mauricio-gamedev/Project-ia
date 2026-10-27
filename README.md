@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Codinome provisório · versão 0.3.0-alpha · Project Factory inicial**
+> **Codinome provisório · versão 0.3.2-alpha · exportação via Shizuku opcional**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
