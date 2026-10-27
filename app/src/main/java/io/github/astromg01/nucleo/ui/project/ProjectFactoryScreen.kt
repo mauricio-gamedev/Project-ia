@@ -75,6 +75,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var visibleFileLimit by remember { mutableStateOf(MAX_VISIBLE_FILES) }
     var previewFile by remember { mutableStateOf<StagedFileEvidence?>(null) }
     var preview by remember { mutableStateOf<StagedFilePreview?>(null) }
     var previewError by remember { mutableStateOf<String?>(null) }
@@ -85,6 +86,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
     fun discardCurrentDraft(showStatus: Boolean = false) {
         val previous = stagedProject ?: return
         stagedProject = null
+        visibleFileLimit = MAX_VISIBLE_FILES
         previewFile = null
         preview = null
         previewError = null
@@ -293,6 +295,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                             val staged = withContext(Dispatchers.IO) {
                                 factory.stage(draft, stagingRoot)
                             }
+                            visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
                             status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos em staging privado. Ainda não houve compilação."
                             statusIsError = false
@@ -332,7 +335,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    staged.files.take(MAX_VISIBLE_FILES).forEach { file ->
+                    staged.files.take(visibleFileLimit).forEach { file ->
                         OutlinedButton(
                             onClick = {
                                 previewFile = file
@@ -359,12 +362,17 @@ fun ProjectFactoryScreen(container: AppContainer) {
                             }
                         }
                     }
-                    if (staged.files.size > MAX_VISIBLE_FILES) {
-                        Text(
-                            "… e mais ${staged.files.size - MAX_VISIBLE_FILES} arquivos",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (staged.files.size > visibleFileLimit) {
+                        OutlinedButton(
+                            onClick = {
+                                visibleFileLimit = (visibleFileLimit + MAX_VISIBLE_FILES)
+                                    .coerceAtMost(staged.files.size)
+                            },
+                            enabled = !exporting && !generating,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Mostrar mais arquivos (${staged.files.size - visibleFileLimit} restantes)")
+                        }
                     }
                     OutlinedButton(
                         onClick = { folderPicker.launch(null) },
