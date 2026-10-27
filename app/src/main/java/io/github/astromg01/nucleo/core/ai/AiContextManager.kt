@@ -31,7 +31,7 @@ class AiContextManager {
             content = "Context handoff: mensagens antigas intermediárias foram omitidas para caber no limite deste modelo. " +
                 "Preserve o pedido original e as mensagens recentes disponíveis. Não invente detalhes ausentes; peça esclarecimento se necessário.",
         )
-        val reserveForHandoff = handoff.content.length + ROLE_OVERHEAD
+        val reserveForHandoff = messageCost(handoff)
         val selected = linkedSetOf<Int>().apply { addAll(mandatory) }
         var used = mandatory.sumOf { index -> messageCost(messages[index]) }
         if (used + reserveForHandoff > maxInputChars) {
