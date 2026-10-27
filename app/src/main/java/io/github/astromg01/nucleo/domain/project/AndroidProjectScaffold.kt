@@ -279,26 +279,30 @@ object AndroidProjectScaffold {
         """.trimIndent() + "\n"
     }
 
-    private fun manifestTemplate(name: String, activityName: String, preservedPermissions: List<String>): String = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            ${(preservedPermissions + """<uses-permission android:name="android.permission.INTERNET" />""").distinct().joinToString("\n    ")}
-            <application
-                android:allowBackup="false"
-                android:label="${escapeXml(name)}"
-                android:supportsRtl="true"
-                android:theme="@android:style/Theme.Material.Light.NoActionBar">
-                <activity
-                    android:name="$activityName"
-                    android:exported="true">
-                    <intent-filter>
-                        <action android:name="android.intent.action.MAIN" />
-                        <category android:name="android.intent.category.LAUNCHER" />
-                    </intent-filter>
-                </activity>
-            </application>
-        </manifest>
-    """.trimIndent() + "\n"
+    private fun manifestTemplate(name: String, activityName: String, preservedPermissions: List<String>): String {
+        val internetPermission = """<uses-permission android:name="android.permission.INTERNET" />"""
+        val permissions = (preservedPermissions + internetPermission).distinct().joinToString("\\n    ")
+        return """
+            <?xml version="1.0" encoding="utf-8"?>
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                $permissions
+                <application
+                    android:allowBackup="false"
+                    android:label="${escapeXml(name)}"
+                    android:supportsRtl="true"
+                    android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                    <activity
+                        android:name="$activityName"
+                        android:exported="true">
+                        <intent-filter>
+                            <action android:name="android.intent.action.MAIN" />
+                            <category android:name="android.intent.category.LAUNCHER" />
+                        </intent-filter>
+                    </activity>
+                </application>
+            </manifest>
+        """.trimIndent() + "\\n"
+    }
 
     private fun defaultLauncherTemplate(name: String, description: String): String {
         val projectName = escapeString(name)
