@@ -62,6 +62,9 @@ import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
 import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.AndroidProjectScaffold
+import io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter
+import io.github.astromg01.nucleo.domain.project.BuiltAndroidArtifact
 import io.github.astromg01.nucleo.domain.project.StagedFileEvidence
 import io.github.astromg01.nucleo.domain.project.StagedFilePreview
 import io.github.astromg01.nucleo.domain.project.ProjectProfile
@@ -409,7 +412,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                             append("REGRA CRÍTICA: cada valor content é uma string JSON. Escape quebras de linha como \\n, aspas internas como \\\" e barras invertidas como \\\\. Nunca coloque quebras de linha literais dentro de uma string JSON. ")
                                             append("Não use vírgulas finais. Não invente campos. Cada entrada deve ter somente path e content, ambos strings. ")
                                             append("Para WEB_APP prefira somente index.html, styles.css, script.js e package.json, sem dependências de runtime externas se não forem necessárias. Mantenha o código simples para caber na resposta. ")
-                                            append("Para ANDROID_APP inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts, app/src/main/AndroidManifest.xml e ao menos uma Activity Kotlin em app/src/main/java/. Use SDK 36, minSdk 26 e versões compatíveis de Gradle/AGP/Kotlin. ")
+                                            append("Para ANDROID_APP, gere um app funcional completo com Kotlin e Jetpack Compose, não apenas arquivos de exemplo ou um esqueleto vazio. Inclua uma Activity inicial real, ligada ao manifest, e todo código de UI/estado necessário para a funcionalidade pedida. Inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts e app/src/main/AndroidManifest.xml consistentes entre si, com plugin Android, Kotlin/Compose, namespace, applicationId, compileSdk 36, minSdk 26, targetSdk 36, dependências explícitas e repositórios Google/Maven Central. Mantenha a mesma package name entre o código e a Activity declarada no manifest. Não omita imports, métodos chamados, recursos ou dependências usados pelo código. ")
                                             append("Para PYTHON inclua pyproject.toml ou requirements.txt e pelo menos um arquivo .py. Para GENÉRICO use a estrutura apropriada ao pedido. ")
                                             append("Não gere binários, .git, .gradle, build, node_modules, credenciais, chaves, .env, local.properties ou google-services.json. ")
                                             append("Nunca afirme que executou testes ou compilou. A saída é apenas fonte ainda não executada. Caminhos devem ser relativos e únicos.")
@@ -421,7 +424,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                     ),
                                 ),
                                 temperature = 0.0,
-                                maxOutputTokens = 12_000,
+                                maxOutputTokens = if (requestedProfile == ProjectProfile.ANDROID_APP) 20_000 else 12_000,
                                 jsonObjectMode = true,
                                 taskType = AiTaskType.CODE_GENERATION,
                             )
@@ -436,19 +439,34 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                     throw error
                                 }
                             }
-                            val draft = parseProjectDraft(
+                            val parsedDraft = parseProjectDraft(
                                 responseText = response.text,
                                 name = requestedName,
                                 description = requestedDescription,
                                 profile = requestedProfile,
                             )
+                            val scaffold = AndroidProjectScaffold.complete(parsedDraft)
                             val factory = ProjectFactory()
                             val staged = withContext(Dispatchers.IO) {
-                                factory.stage(draft, stagingRoot)
+                                factory.stage(scaffold.draft, stagingRoot)
                             }
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
-                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos em staging privado. Ainda não houve compilação."
+                            val scaffoldNote = if (requestedProfile == ProjectProfile.ANDROID_APP) {
+                                buildString {
+                                    val added = scaffold.addedPaths.size
+                                    val replaced = scaffold.replacedPaths.size
+                                    if (added > 0 || replaced > 0) {
+                                        append(" Base Android completada: $added arquivo(s) adicionados, $replaced configurado(s) corrigido(s). ")
+                                    }
+                                    if (scaffold.defaultLauncherAdded) {
+                                        append("Foi criada uma Activity inicial de contingência; revise se a funcionalidade pedida foi ligada à tela inicial. ")
+                                    }
+                                }
+                            } else {
+                                ""
+                            }
+                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote Ainda não houve compilação."
                             statusIsError = false
                         } catch (cancelled: CancellationException) {
                             throw cancelled
