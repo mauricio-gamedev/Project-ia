@@ -57,6 +57,9 @@ import io.github.astromg01.nucleo.core.ai.AiRequest
 import io.github.astromg01.nucleo.core.ai.AiTaskType
 import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
 import io.github.astromg01.nucleo.domain.project.ProjectDraft
+import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
+import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
+import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
 import io.github.astromg01.nucleo.domain.project.StagedFileEvidence
 import io.github.astromg01.nucleo.domain.project.StagedFilePreview
@@ -77,6 +80,12 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import rikka.shizuku.Shizuku
+
+private data class ProjectRepairDiffEntry(
+    val path: String,
+    val before: String,
+    val after: String,
+)
 
 @Composable
 fun ProjectFactoryScreen(container: AppContainer) {
@@ -100,6 +109,36 @@ fun ProjectFactoryScreen(container: AppContainer) {
     var statusIsError by remember { mutableStateOf(false) }
     var hasAllFilesAccess by remember {
         mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager())
+    }
+    var reviewConsent by remember { mutableStateOf(false) }
+    var reviewingCode by remember { mutableStateOf(false) }
+    var proposingRepair by remember { mutableStateOf(false) }
+    var reviewSnapshot by remember { mutableStateOf<ProjectSourceSnapshot?>(null) }
+    var reviewReport by remember { mutableStateOf<ProjectCodeReviewReport?>(null) }
+    var repairCandidate by remember { mutableStateOf<StagedProject?>(null) }
+    var repairSummary by remember { mutableStateOf("") }
+    var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
+
+    fun clearReviewState() {
+        val candidate = repairCandidate
+        repairCandidate = null
+        reviewSnapshot = null
+        reviewReport = null
+        repairSummary = ""
+        repairDiffs = emptyList()
+        reviewingCode = false
+        proposingRepair = false
+        if (candidate != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        ProjectFactory().discard(candidate, stagingRoot)
+                    }
+                } catch (_: Exception) {
+                    // Best-effort cleanup of a private draft created only for an unaccepted repair.
+                }
+            }
+        }
     }
 
     fun discardCurrentDraft(showStatus: Boolean = false) {
@@ -273,6 +312,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
             value = projectName,
             onValueChange = {
                 projectName = it
+                clearReviewState()
                 discardCurrentDraft()
             },
             label = { Text("Nome do projeto") },
@@ -308,6 +348,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
             value = description,
             onValueChange = {
                 description = it.take(ProjectFactory.MAX_DESCRIPTION_CHARS)
+                clearReviewState()
                 discardCurrentDraft()
             },
             label = { Text("O que a IA deve criar?") },
@@ -346,6 +387,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     status = "Confirma o envio do pedido ao provedor antes de gerar o projeto."
                     statusIsError = true
                 } else if (!generating && !exporting) {
+                    clearReviewState()
                     discardCurrentDraft()
                     generating = true
                     status = "A IA está preparando o manifesto de arquivos…"
@@ -615,6 +657,261 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Descartar rascunho e limpar staging")
+                    }
+                    HorizontalDivider()
+                    Text("Análise de código e reparo controlado", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = reviewConsent, onCheckedChange = { reviewConsent = it })
+                        Text(
+                            "Autorizo enviar o conteúdo dos arquivos do rascunho ao provedor remoto para análise e sugestões de correção.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Text(
+                        "A revisão é estática e feita por IA: não executa o código. Para propor uma correção completa, o Núcleo exige que todos os arquivos estejam disponíveis sem truncamento.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = {
+                            if (!reviewConsent) {
+                                status = "Autoriza explicitamente o envio do código antes de iniciar a revisão."
+                                statusIsError = true
+                            } else {
+                                reviewingCode = true
+                                status = "Lendo arquivos íntegros e pedindo uma revisão estática à IA…"
+                                statusIsError = false
+                                val stagedForReview = staged
+                                val descriptionForReview = description.trim()
+                                scope.launch {
+                                    try {
+                                        val reviewer = ProjectCodeReviewService()
+                                        val snapshot = withContext(Dispatchers.IO) {
+                                            reviewer.collectSources(
+                                                stagedForReview,
+                                                maxFiles = 8,
+                                                maxCharsPerFile = ProjectFactory.MAX_PREVIEW_CHARS,
+                                                totalChars = 30_000,
+                                            )
+                                        }
+                                        val request = reviewer.buildReviewRequest(stagedForReview, descriptionForReview, snapshot)
+                                        val response = container.modelRouter.generate(request)
+                                        val report = reviewer.parseReviewResponse(
+                                            responseText = response.text,
+                                            allowedPaths = snapshot.files.map { it.path }.toSet(),
+                                            partial = snapshot.truncatedPaths.isNotEmpty() || snapshot.omittedFileCount > 0,
+                                        )
+                                        reviewSnapshot = snapshot
+                                        reviewReport = report
+                                        status = "Revisão concluída por ${response.providerName}/${response.modelName}: ${report.findings.size} achado(s). Nenhum código foi executado."
+                                        statusIsError = false
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Exception) {
+                                        status = error.message ?: "Não foi possível analisar o código."
+                                        statusIsError = true
+                                    } finally {
+                                        reviewingCode = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !exporting && !generating && !reviewingCode && !proposingRepair && repairCandidate == null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (reviewingCode) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                        else Text("Analisar código com IA")
+                    }
+                    reviewReport?.let { report ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Relatório de revisão", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(report.summary, style = MaterialTheme.typography.bodySmall)
+                                if (report.partial) {
+                                    Text(
+                                        "Revisão parcial: alguns arquivos ou trechos foram omitidos. O Núcleo não vai propor uma correção automática a partir desse relatório.",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                if (report.findings.isEmpty()) {
+                                    Text("A IA não retornou achados válidos para os arquivos analisados.", style = MaterialTheme.typography.bodySmall)
+                                }
+                                report.findings.take(12).forEach { finding ->
+                                    HorizontalDivider()
+                                    Text(
+                                        "[${finding.severity.uppercase()}] ${finding.path}${finding.line?.let { ":$it" }.orEmpty()}",
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                    Text(finding.problem, style = MaterialTheme.typography.bodySmall)
+                                    if (finding.recommendation.isNotBlank()) {
+                                        Text("Sugestão: ${finding.recommendation}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                if (report.findings.size > 12) {
+                                    Text("Mais ${report.findings.size - 12} achado(s) no relatório.", style = MaterialTheme.typography.labelSmall)
+                                }
+                                Button(
+                                    onClick = {
+                                        val snapshot = reviewSnapshot
+                                        if (report.partial || snapshot == null || !snapshot.canProposeCompleteRepairs) {
+                                            status = "A correção automática exige uma revisão completa, com todos os arquivos sem truncamento."
+                                            statusIsError = true
+                                        } else if (report.findings.isEmpty()) {
+                                            status = "Não há achados da revisão para corrigir."
+                                            statusIsError = false
+                                        } else {
+                                            proposingRepair = true
+                                            status = "Solicitando uma proposta de correção isolada do rascunho original…"
+                                            statusIsError = false
+                                            val currentStaged = staged
+                                            val currentSnapshot = snapshot
+                                            scope.launch {
+                                                try {
+                                                    val reviewer = ProjectCodeReviewService()
+                                                    val request = reviewer.buildRepairRequest(
+                                                        currentStaged,
+                                                        description.trim(),
+                                                        currentSnapshot,
+                                                        report,
+                                                    )
+                                                    val response = container.modelRouter.generate(request)
+                                                    val proposal = reviewer.parseRepairProposal(
+                                                        response.text,
+                                                        currentSnapshot.files.map { it.path }.toSet(),
+                                                    )
+                                                    val originalByPath = currentSnapshot.files.associateBy { it.path }
+                                                    val changedFiles = proposal.files.mapNotNull { changed ->
+                                                        originalByPath[changed.path]?.let { original ->
+                                                            ProjectRepairDiffEntry(changed.path, original.content, changed.content)
+                                                        }
+                                                    }
+                                                    val replacements = proposal.files.associateBy { it.path }
+                                                    val updatedFiles = currentSnapshot.files.map { original ->
+                                                        replacements[original.path] ?: original
+                                                    }
+                                                    val candidate = withContext(Dispatchers.IO) {
+                                                        ProjectFactory().stage(
+                                                            ProjectDraft(
+                                                                name = currentStaged.name,
+                                                                profile = currentStaged.profile,
+                                                                description = description.trim(),
+                                                                files = updatedFiles,
+                                                            ),
+                                                            stagingRoot,
+                                                        )
+                                                    }
+                                                    repairCandidate = candidate
+                                                    repairSummary = proposal.summary
+                                                    repairDiffs = changedFiles
+                                                    status = "Proposta criada por ${response.providerName}/${response.modelName} num staging separado. O rascunho original continua intacto; nenhum teste foi executado."
+                                                    statusIsError = false
+                                                } catch (cancelled: CancellationException) {
+                                                    throw cancelled
+                                                } catch (error: Exception) {
+                                                    status = error.message ?: "Não foi possível preparar a proposta de correção."
+                                                    statusIsError = true
+                                                } finally {
+                                                    proposingRepair = false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !report.partial && report.findings.isNotEmpty() &&
+                                        reviewSnapshot?.canProposeCompleteRepairs == true &&
+                                        !exporting && !generating && !reviewingCode && !proposingRepair && repairCandidate == null,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    if (proposingRepair) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                                    else Text("Propor correções em rascunho")
+                                }
+                            }
+                        }
+                    }
+                    repairCandidate?.let { candidate ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Proposta isolada de correção", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(repairSummary, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    "Nada foi aplicado ao rascunho atual. Confere o diff abaixo; aceitar troca o rascunho ativo pela nova cópia.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                repairDiffs.forEach { diff ->
+                                    HorizontalDivider()
+                                    Text(diff.path, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+                                    Text("ANTES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                    SelectionContainer {
+                                        Text(diff.before.take(1_200), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text("PROPOSTA", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    SelectionContainer {
+                                        Text(diff.after.take(1_200), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (diff.before.length > 1_200 || diff.after.length > 1_200) {
+                                        Text("Prévia do diff limitada a 1.200 caracteres por versão.", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        val previous = stagedProject
+                                        stagedProject = candidate
+                                        repairCandidate = null
+                                        reviewSnapshot = null
+                                        reviewReport = null
+                                        repairSummary = ""
+                                        repairDiffs = emptyList()
+                                        status = "Rascunho corrigido aplicado como nova revisão. O projeto original foi preservado até a confirmação; o código ainda não foi executado."
+                                        statusIsError = false
+                                        if (previous != null) {
+                                            scope.launch {
+                                                try {
+                                                    withContext(Dispatchers.IO) {
+                                                        ProjectFactory().discard(previous, stagingRoot)
+                                                    }
+                                                } catch (error: Exception) {
+                                                    status = "Nova revisão ativada, mas a cópia antiga não foi limpa: ${error.message ?: "erro de limpeza"}"
+                                                    statusIsError = true
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !proposingRepair && !reviewingCode && !exporting,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Aplicar rascunho corrigido") }
+                                TextButton(
+                                    onClick = {
+                                        val discard = repairCandidate
+                                        repairCandidate = null
+                                        repairSummary = ""
+                                        repairDiffs = emptyList()
+                                        if (discard != null) {
+                                            scope.launch {
+                                                try {
+                                                    withContext(Dispatchers.IO) {
+                                                        ProjectFactory().discard(discard, stagingRoot)
+                                                    }
+                                                    status = "Proposta descartada; rascunho original preservado."
+                                                    statusIsError = false
+                                                } catch (error: Exception) {
+                                                    status = error.message ?: "Não foi possível limpar a proposta."
+                                                    statusIsError = true
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !proposingRepair && !exporting,
+                                ) { Text("Descartar proposta") }
+                                Text(
+                                    "Essa correção é apenas uma proposta validada pelo staging. Ainda não foi compilada nem executada.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                     Text(
                         "A exportação não executa scripts, não compila APKs e não assina um release. Revise o código antes de usá-lo.",
