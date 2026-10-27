@@ -12,6 +12,7 @@
         android:label="Núcleo AI"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nucleo"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false">
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
