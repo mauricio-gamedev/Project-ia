@@ -4,7 +4,7 @@
 
 ### AutoRouter e continuidade
 - Added multiple OpenAI-compatible fallback profiles with separately encrypted API keys.
-- Route code-generation/review/repair requests toward higher user-assigned capability tiers after the primary route fails; ordinary chat follows explicit priority order.
+- Initial code generation starts with the chosen primary and escalates to higher capability tiers after a failure; code review/repair prioritize stronger user-assigned tiers up front. Ordinary chat follows explicit priority order.
 - Persist per-route cooldowns for rate limits, authentication errors, timeouts, server failures, and provider compatibility errors; honor numeric `Retry-After` for HTTP 429.
 - Added per-route input-context budgets. The context handoff preserves system instructions, the original user task, and recent messages; it omits old middle messages only when necessary and refuses to cut the mandatory task.
 
