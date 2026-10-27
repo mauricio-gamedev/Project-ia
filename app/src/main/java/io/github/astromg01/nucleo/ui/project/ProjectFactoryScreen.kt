@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -24,7 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +48,8 @@ import io.github.astromg01.nucleo.core.ai.AiRequest
 import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
 import io.github.astromg01.nucleo.domain.project.ProjectDraft
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.StagedFileEvidence
+import io.github.astromg01.nucleo.domain.project.StagedFilePreview
 import io.github.astromg01.nucleo.domain.project.ProjectProfile
 import io.github.astromg01.nucleo.domain.project.StagedProject
 import kotlinx.coroutines.CancellationException
@@ -68,8 +75,41 @@ fun ProjectFactoryScreen(container: AppContainer) {
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var previewFile by remember { mutableStateOf<StagedFileEvidence?>(null) }
+    var preview by remember { mutableStateOf<StagedFilePreview?>(null) }
+    var previewError by remember { mutableStateOf<String?>(null) }
+    var previewLoading by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Descreve o projeto e gera um primeiro rascunho revisável.") }
     var statusIsError by remember { mutableStateOf(false) }
+
+    fun discardCurrentDraft(showStatus: Boolean = false) {
+        val previous = stagedProject ?: return
+        stagedProject = null
+        previewFile = null
+        preview = null
+        previewError = null
+        previewLoading = false
+        if (showStatus) {
+            status = "Limpando o rascunho temporário…"
+            statusIsError = false
+        }
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    ProjectFactory().discard(previous, stagingRoot)
+                }
+                if (showStatus) {
+                    status = "Rascunho descartado e arquivos temporários removidos."
+                    statusIsError = false
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                status = error.message ?: "Não foi possível limpar o rascunho temporário."
+                statusIsError = true
+            }
+        }
+    }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         val staged = stagedProject
@@ -99,6 +139,31 @@ fun ProjectFactoryScreen(container: AppContainer) {
         }
     }
 
+    LaunchedEffect(stagedProject?.id, previewFile?.relativePath) {
+        val staged = stagedProject
+        val selected = previewFile
+        if (staged == null || selected == null) {
+            previewLoading = false
+            preview = null
+            previewError = null
+        } else {
+            previewLoading = true
+            preview = null
+            previewError = null
+            try {
+                preview = withContext(Dispatchers.IO) {
+                    ProjectFactory().readPreview(staged, selected)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                previewError = error.message ?: "Não foi possível abrir a prévia."
+            } finally {
+                previewLoading = false
+            }
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -114,7 +179,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
             value = projectName,
             onValueChange = {
                 projectName = it
-                stagedProject = null
+                discardCurrentDraft()
             },
             label = { Text("Nome do projeto") },
             modifier = Modifier.fillMaxWidth(),
@@ -126,21 +191,21 @@ fun ProjectFactoryScreen(container: AppContainer) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ProfileChip("Android / APK", profile == ProjectProfile.ANDROID_APP) {
                     profile = ProjectProfile.ANDROID_APP
-                    stagedProject = null
+                    discardCurrentDraft()
                 }
                 ProfileChip("Web", profile == ProjectProfile.WEB_APP) {
                     profile = ProjectProfile.WEB_APP
-                    stagedProject = null
+                    discardCurrentDraft()
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ProfileChip("Python", profile == ProjectProfile.PYTHON) {
                     profile = ProjectProfile.PYTHON
-                    stagedProject = null
+                    discardCurrentDraft()
                 }
                 ProfileChip("Genérico", profile == ProjectProfile.GENERIC) {
                     profile = ProjectProfile.GENERIC
-                    stagedProject = null
+                    discardCurrentDraft()
                 }
             }
         }
@@ -149,7 +214,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
             value = description,
             onValueChange = {
                 description = it
-                stagedProject = null
+                discardCurrentDraft()
             },
             label = { Text("O que a IA deve criar?") },
             placeholder = { Text("Ex.: um app de lista de tarefas com salvamento local, pesquisa e tema escuro…") },
@@ -184,7 +249,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     status = "Confirma o envio do pedido ao provedor antes de gerar o projeto."
                     statusIsError = true
                 } else if (!generating && !exporting) {
-                    stagedProject = null
+                    discardCurrentDraft()
                     generating = true
                     status = "A IA está preparando o manifesto de arquivos…"
                     statusIsError = false
@@ -268,11 +333,31 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     staged.files.take(MAX_VISIBLE_FILES).forEach { file ->
-                        Text(
-                            "${file.relativePath} · ${file.sizeBytes} bytes",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
+                        OutlinedButton(
+                            onClick = {
+                                previewFile = file
+                                preview = null
+                                previewError = null
+                            },
+                            enabled = !exporting && !generating,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    file.relativePath,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                                Text(
+                                    "${file.sizeBytes} bytes · SHA-256 ${file.sha256.take(12)}… · tocar para revisar",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                     if (staged.files.size > MAX_VISIBLE_FILES) {
                         Text(
@@ -288,6 +373,13 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     ) {
                         Text(if (exporting) "Exportando…" else "Exportar código-fonte para uma pasta")
                     }
+                    OutlinedButton(
+                        onClick = { discardCurrentDraft(showStatus = true) },
+                        enabled = !exporting && !generating,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Descartar rascunho e limpar staging")
+                    }
                     Text(
                         "A exportação não executa scripts, não compila APKs e não assina um release. Revise o código antes de usá-lo.",
                         style = MaterialTheme.typography.bodySmall,
@@ -298,6 +390,69 @@ fun ProjectFactoryScreen(container: AppContainer) {
         }
 
         Spacer(Modifier.height(8.dp))
+    }
+
+    previewFile?.let { selectedFile ->
+        AlertDialog(
+            onDismissRequest = {
+                previewFile = null
+                preview = null
+                previewError = null
+            },
+            title = {
+                Text(
+                    selectedFile.relativePath,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "${selectedFile.sizeBytes} bytes · SHA-256 ${selectedFile.sha256}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    when {
+                        previewLoading -> CircularProgressIndicator()
+                        previewError != null -> Text(
+                            previewError.orEmpty(),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        preview != null -> {
+                            val loadedPreview = preview!!
+                            if (loadedPreview.truncated) {
+                                Text(
+                                    "Prévia limitada aos primeiros ${ProjectFactory.MAX_PREVIEW_CHARS} caracteres. O arquivo completo permanece intacto no staging e será verificado pelo SHA-256 antes da exportação.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            SelectionContainer {
+                                Text(
+                                    loadedPreview.content,
+                                    fontFamily = FontFamily.Monospace,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    previewFile = null
+                    preview = null
+                    previewError = null
+                }) {
+                    Text("Fechar")
+                }
+            },
+        )
     }
 }
 
