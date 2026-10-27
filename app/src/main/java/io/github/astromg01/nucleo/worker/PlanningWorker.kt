@@ -7,6 +7,8 @@ import androidx.room.withTransaction
 import io.github.astromg01.nucleo.NucleoApplication
 import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
+import io.github.astromg01.nucleo.core.ai.AiTaskType
+import io.github.astromg01.nucleo.core.ai.ModelRoutingException
 import io.github.astromg01.nucleo.core.ai.ProviderConfigurationException
 import io.github.astromg01.nucleo.core.ai.ProviderHttpException
 import io.github.astromg01.nucleo.data.local.MemoryEntity
@@ -72,6 +74,7 @@ class PlanningWorker(
                     ),
                 ),
                 temperature = 0.2,
+                taskType = AiTaskType.PLANNING,
             )
             val response = container.modelRouter.generate(request)
             container.database.withTransaction {
@@ -101,7 +104,8 @@ class PlanningWorker(
         } catch (error: Exception) {
             val freshTask = taskDao.getById(taskId) ?: task
             val transientProviderFailure = error is java.io.IOException ||
-                (error is ProviderHttpException && error.isRetryable)
+                (error is ProviderHttpException && error.isRetryable) ||
+                (error is ModelRoutingException && error.isRetryable)
             val canRetry = transientProviderFailure && freshTask.attemptCount < freshTask.maxAttempts
             taskDao.update(
                 freshTask.copy(
