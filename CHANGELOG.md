@@ -9,6 +9,8 @@
 - Added per-file SHA-256 evidence and explicit source export through Android Storage Access Framework, without executing generated scripts.
 - Added a bounded, selectable source preview for each staged file; previews re-check path safety, UTF-8 decoding, file size, and SHA-256 integrity.
 - Added guarded staging cleanup and regression tests proving that discard refuses directories outside the authorized staging root.
+- Requested provider JSON-object response mode for generation and added an HTTP 400 compatibility retry for OpenAI-style endpoints that reject the optional parameter.
+- Improved malformed-manifest diagnostics to distinguish incomplete output from likely unescaped quotes or line breaks.
 - Added regression tests for staging, unsafe paths, collisions, secret files, size limits, and profile requirements.
 
 ### Status
