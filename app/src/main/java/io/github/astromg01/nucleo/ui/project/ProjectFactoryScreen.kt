@@ -668,8 +668,9 @@ private suspend fun exportStagedProjectViaShizuku(
             throw IOException("O ZIP temporário não contém todos os arquivos esperados.")
         }
 
-        bound = bindShizukuExportService(context)
-        val remote = bound.remote
+        val activeConnection = bindShizukuExportService(context)
+        bound = activeConnection
+        val remote = activeConnection.remote
         remote.beginExport(safeZipFilename(staged.name))
         try {
             FileInputStream(archive).use { input ->
