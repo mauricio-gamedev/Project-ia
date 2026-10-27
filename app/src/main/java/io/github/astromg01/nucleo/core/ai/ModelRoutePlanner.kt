@@ -3,9 +3,9 @@ package io.github.astromg01.nucleo.core.ai
 import io.github.astromg01.nucleo.data.settings.ProviderConfiguration
 
 /**
- * Deterministic route ordering. The configured primary remains first; after it fails, code
- * generation/review/repair can escalate to higher user-assigned quality tiers. Tier is metadata
- * chosen by the user, not a claim that the router independently benchmarked the model.
+ * Deterministic task-aware route ordering. Chat/planning and initial code generation start at the
+ * configured primary; review/repair start at the highest user-assigned capability tier. Tier is
+ * user metadata, not a claim that the router independently benchmarked the model.
  */
 object ModelRoutePlanner {
     fun order(
