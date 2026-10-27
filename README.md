@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Versão 0.5.0-alpha · catálogo de modelos + timeline sincronizada · identidade de app consolidada**
+> **Versão 0.6.0-alpha · Android Project Factory + compilação APK pela nuvem**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
@@ -18,6 +18,8 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Linha do tempo inicial baseada em registros Room de projetos, tarefas, memórias e conversas, ordenados por timestamps persistidos.
 - Conclusão de tarefas e criação da memória do plano em uma transação única, respeitando cancelamentos que ocorram durante uma chamada remota.
 - Bloqueio de salvamento quando o provedor/endpoint mudou, mas uma nova chave ainda não foi informada.
+- Scaffold determinístico para projetos Android: completa arquivos Gradle/Manifest ausentes, corrige configurações básicas inválidas, adiciona Activity de contingência quando falta um launcher válido e preserva permissões comuns do manifest.
+- Adaptador de compilação remota via GitHub Actions com repositório privado, consentimento separado, download e SHA-256 do APK validado; exige configuração explícita e não usa Termux.
 - Context handoff por orçamento aproximado: preserva instruções, pedido original e mensagens recentes ao alternar de modelo.
 - Revisão estática assistida por IA e propostas de reparo em staging separado, com confirmação explícita e sem executar o código.
 - Endpoints remotos precisam usar HTTPS; credenciais não são compartilhadas com o catálogo da OpenRouter quando a rota configurada é de outro host.
@@ -32,7 +34,7 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 
 ## O que ainda não está implementado
 
-É importante distinguir estrutura de funcionalidade concluída. Esta versão **não** modifica arquivos de código, não executa comandos de shell, não implementa Git, não cria pull requests e não inclui um runtime de inferência local. NúcleoLang ainda não compila APKs nem expõe ferramentas de engenharia: ela é uma linguagem interpretada básica cuja integração com o agente será desenvolvida depois. O Project Factory agora tem uma primeira implementação alfa: gera um manifesto com o modelo configurado, valida caminhos e arquivos essenciais, guarda o resultado em staging privado e permite exportar o código-fonte após ação explícita do usuário. Ainda não executa os scripts gerados nem compila os projetos criados. O núcleo de tarefas gera planos técnicos, não implementações automáticas. A interface `LocalModelRuntime` é apenas o ponto de extensão para integrar um motor local numa etapa futura.
+É importante distinguir estrutura de funcionalidade concluída. O chat não edita repositórios nem executa comandos arbitrários. O Project Factory gera fontes em staging privado, valida caminhos e hashes e exporta ZIPs com consentimento. Para o perfil Android, o scaffold completa arquivos básicos ausentes e a aplicação pode solicitar um build remoto de APK de depuração por GitHub Actions, somente depois de o usuário configurar um repositório privado e autorizar o envio/execução dos scripts Gradle. Não há toolchain Android completa executando localmente no A06. O build remoto não garante que todas as funcionalidades estão corretas; apenas um job bem-sucedido confirma que o APK foi compilado e passou pela verificação pós-build. NúcleoLang ainda é uma linguagem interpretada e não compila APKs diretamente. O núcleo de tarefas gera planos técnicos, não implementações automáticas.
 
 Também ainda não há busca semântica por embeddings, indexação incremental completa, agentes paralelos ou treinamento de modelo próprio. Esses recursos não devem ser tratados como existentes só porque constam do roadmap.
 
@@ -53,6 +55,10 @@ Requisitos oficiais de compatibilidade: [AGP 8.13](https://developer.android.com
 ## Assinatura e atualização do APK
 
 Consulte [docs/ANDROID_SIGNING.md](docs/ANDROID_SIGNING.md) para configurar uma chave persistente de assinatura via GitHub Actions Secrets. Sem essa configuração, o CI ainda pode compilar um APK de depuração, mas a assinatura temporária do runner não garante atualização por cima da instalação existente.
+
+## Compilação de APKs de projetos Android
+
+Consulte [docs/ANDROID_CLOUD_BUILDS.md](docs/ANDROID_CLOUD_BUILDS.md) para configurar um repositório privado, token com permissões restritas e compilação por GitHub Actions. A saída é um APK de depuração; não é um release da Play Store.
 
 ## Como abrir e compilar
 
