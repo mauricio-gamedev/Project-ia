@@ -714,6 +714,14 @@ private fun SettingsScreen(container: AppContainer) {
     var keySaved by remember { mutableStateOf(container.secretStore.readApiKey() != null) }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var fallbackProfiles by remember { mutableStateOf(container.providerPreferences.loadFallbackProfiles()) }
+    var fallbackName by remember { mutableStateOf("") }
+    var fallbackBaseUrl by remember { mutableStateOf("") }
+    var fallbackModel by remember { mutableStateOf("") }
+    var fallbackApiKey by remember { mutableStateOf("") }
+    var fallbackPriority by remember { mutableStateOf("10") }
+    var fallbackQualityTier by remember { mutableStateOf("3") }
+    var fallbackContextChars by remember { mutableStateOf("64000") }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -813,6 +821,164 @@ private fun SettingsScreen(container: AppContainer) {
                             }) { Text("Remover chave salva") }
                         }
                         if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = if (status.startsWith("Teste falhou")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary)
+                    }
+                }
+            }
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("AutoRouter · modelos alternativos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "A rota principal continua a ser a configuração acima. Se atingir cota, der timeout ou falhar, o Núcleo tenta as rotas alternativas. Em tarefas de código, rotas com nível de capacidade maior são priorizadas após a principal.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text("Rotas alternativas configuradas: ${fallbackProfiles.size}", style = MaterialTheme.typography.labelLarge)
+                        fallbackProfiles.forEach { profile ->
+                            HorizontalDivider()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(profile.providerName, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "${profile.modelName} · nível ${profile.qualityTier} · prioridade ${profile.priority}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(profile.baseUrl, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                TextButton(onClick = {
+                                    container.secretStore.removeApiKey(profile.id)
+                                    fallbackProfiles = fallbackProfiles.filterNot { it.id == profile.id }
+                                    container.providerPreferences.saveFallbackProfiles(fallbackProfiles)
+                                    status = "Rota ${profile.providerName} removida e chave cifrada apagada."
+                                }) { Text("Remover") }
+                            }
+                        }
+                        HorizontalDivider()
+                        Text("Adicionar rota de fallback", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        OutlinedTextField(
+                            value = fallbackName,
+                            onValueChange = { fallbackName = it },
+                            label = { Text("Nome do provedor") },
+                            placeholder = { Text("Ex.: Gateway local / OpenRouter") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = fallbackBaseUrl,
+                            onValueChange = { fallbackBaseUrl = it },
+                            label = { Text("URL base HTTPS") },
+                            placeholder = { Text("https://openrouter.ai/api/v1") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = fallbackModel,
+                            onValueChange = { fallbackModel = it },
+                            label = { Text("Identificador do modelo") },
+                            placeholder = { Text("Ex.: openrouter/free ou ID do modelo") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = fallbackApiKey,
+                            onValueChange = { fallbackApiKey = it },
+                            label = { Text("Chave de API desta rota") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = fallbackPriority,
+                                onValueChange = { fallbackPriority = it.filter(Char::isDigit).take(5) },
+                                label = { Text("Prioridade") },
+                                supportingText = { Text("Menor = antes") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedTextField(
+                                value = fallbackQualityTier,
+                                onValueChange = { fallbackQualityTier = it.filter(Char::isDigit).take(1) },
+                                label = { Text("Nível 1–3") },
+                                supportingText = { Text("3 = mais forte") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        OutlinedTextField(
+                            value = fallbackContextChars,
+                            onValueChange = { fallbackContextChars = it.filter(Char::isDigit).take(6) },
+                            label = { Text("Contexto máximo aproximado (caracteres)") },
+                            supportingText = { Text("Aproximação conservadora; não equivale a tokens do provedor.") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            onClick = {
+                                val priority = fallbackPriority.toIntOrNull()
+                                val tier = fallbackQualityTier.toIntOrNull()
+                                val contextChars = fallbackContextChars.toIntOrNull()
+                                val profile = ProviderConfiguration(
+                                    providerName = fallbackName.trim(),
+                                    baseUrl = fallbackBaseUrl.trim(),
+                                    modelName = fallbackModel.trim(),
+                                    enabled = true,
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    priority = priority ?: -1,
+                                    qualityTier = tier ?: -1,
+                                    contextWindowChars = contextChars ?: -1,
+                                )
+                                val validation = when {
+                                    fallbackApiKey.isBlank() -> "Cola a chave de API dessa rota."
+                                    priority == null || tier == null || contextChars == null ->
+                                        "Preenche prioridade, nível de capacidade e contexto com números válidos."
+                                    else -> container.providerPreferences.validate(profile)
+                                }
+                                if (validation != null) {
+                                    status = validation
+                                } else {
+                                    try {
+                                        container.secretStore.saveApiKey(profile.id, fallbackApiKey.trim())
+                                        val updated = fallbackProfiles + profile
+                                        container.providerPreferences.saveFallbackProfiles(updated)
+                                        fallbackProfiles = updated
+                                        fallbackName = ""
+                                        fallbackBaseUrl = ""
+                                        fallbackModel = ""
+                                        fallbackApiKey = ""
+                                        fallbackPriority = "10"
+                                        fallbackQualityTier = "3"
+                                        fallbackContextChars = "64000"
+                                        status = "Rota alternativa adicionada. A chave foi cifrada separadamente no dispositivo."
+                                    } catch (error: Exception) {
+                                        container.secretStore.removeApiKey(profile.id)
+                                        status = error.message ?: "Não foi possível salvar a rota alternativa."
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Adicionar rota alternativa") }
+                        Text(
+                            "Nível 1 = básico, 2 = equilibrado, 3 = mais capaz. O nível é uma preferência tua, não uma medição automática. Nunca coloques a mesma chave em servidores que não conheces.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (status.isNotBlank()) {
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (status.startsWith("Teste falhou") || status.startsWith("Não foi")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                            )
+                        }
                     }
                 }
             }
