@@ -69,7 +69,7 @@ class ModelRouter(
                 val waitSeconds = ((earliest - now).coerceAtLeast(0L) + 999L) / 1_000L
                 coolingDown.forEach { (route, until) ->
                     val seconds = ((until - now).coerceAtLeast(0L) + 999L) / 1_000L
-                    failures += ProviderRouteFailure(route.providerName, "em cooldown por mais ${seconds}s")
+                    failures += ProviderRouteFailure(route.providerName, "em cooldown por mais ${seconds}s", retryable = true)
                 }
                 throw ModelRoutingException(
                     failures,
@@ -99,10 +99,34 @@ class ModelRouter(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: ProviderHttpException) {
+                // Some compatible providers reject JSON mode. Retry this route once without the
+                // optional parameter before deciding it has failed.
+                if (error.statusCode == 400 && routeRequest.jsonObjectMode) {
+                    try {
+                        val compatibleResponse = OpenAiCompatibleProvider(route, key)
+                            .generate(routeRequest.copy(jsonObjectMode = false))
+                        providerPreferences.clearCooldown(route.id)
+                        return compatibleResponse
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (compatibilityError: Exception) {
+                        lastFailure = compatibilityError
+                        val retryable = compatibilityError is IOException ||
+                            (compatibilityError is ProviderHttpException &&
+                                (compatibilityError.statusCode == 408 || compatibilityError.statusCode == 429 ||
+                                    compatibilityError.statusCode in 500..599))
+                        failures += ProviderRouteFailure(
+                            route.providerName,
+                            "a tentativa sem modo JSON também falhou",
+                            retryable = retryable,
+                        )
+                    }
+                }
                 lastFailure = error
                 failures += ProviderRouteFailure(
                     route.providerName,
                     "HTTP ${error.statusCode}",
+                    retryable = error.statusCode == 408 || error.statusCode == 429 || error.statusCode in 500..599,
                 )
                 val cooldownMillis = when {
                     error.statusCode == 429 ->
@@ -114,7 +138,7 @@ class ModelRouter(
                 providerPreferences.markCooldown(route.id, System.currentTimeMillis() + cooldownMillis)
             } catch (error: IOException) {
                 lastFailure = error
-                failures += ProviderRouteFailure(route.providerName, "falha de rede ou timeout")
+                failures += ProviderRouteFailure(route.providerName, "falha de rede ou timeout", retryable = true)
                 providerPreferences.markCooldown(route.id, System.currentTimeMillis() + TRANSIENT_COOLDOWN_MILLIS)
             } catch (error: Exception) {
                 lastFailure = error
