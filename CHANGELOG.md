@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.3-alpha — 2026-10-27
+
+### Armazenamento e rede
+- Declare `MANAGE_EXTERNAL_STORAGE` e adicione um fluxo explícito para abrir as configurações especiais de “Gerenciar todos os arquivos”.
+- Adicione exportação direta para `Download/NucleoAIProjects` após o usuário conceder acesso, sem usar o seletor de árvore de pastas.
+- Preserve o salvamento por arquivo via Storage Access Framework e a alternativa Shizuku.
+- Aumente o tempo limite da API compatível com OpenAI para permitir modelos gratuitos mais lentos e forneça uma mensagem específica quando a geração expirar.
+- Use `versionCode 6`, `versionName 0.3.3-alpha` e um identificador de debug separado (`.debugfiles`) para manter a instalação atual intacta.
+
+### Observações
+- `MANAGE_EXTERNAL_STORAGE` é uma permissão especial concedida pelo usuário nas configurações do Android; não existe concessão silenciosa.
+- Validação no GitHub Actions ainda precisa confirmar o build desta revisão.
+
 ## 0.3.2-alpha — 2026-10-27
 
 ### Exportação e armazenamento
