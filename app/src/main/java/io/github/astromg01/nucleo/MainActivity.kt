@@ -734,7 +734,7 @@ private fun SettingsScreen(container: AppContainer) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Provedor remoto", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         OutlinedTextField(value = providerName, onValueChange = { providerName = it }, label = { Text("Nome do provedor") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("URL base HTTPS") }, placeholder = { Text("https://api.exemplo.com/v1") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                        OutlinedTextField(value = baseUrl, onValueChange = { baseUrl = it }, label = { Text("URL base HTTPS (HTTP só loopback)") }, placeholder = { Text("https://api.exemplo.com/v1 ou http://127.0.0.1:3001/v1") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
                         OutlinedTextField(value = modelName, onValueChange = { modelName = it }, label = { Text("Identificador do modelo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(
                             value = apiKey,
@@ -871,7 +871,7 @@ private fun SettingsScreen(container: AppContainer) {
                         OutlinedTextField(
                             value = fallbackBaseUrl,
                             onValueChange = { fallbackBaseUrl = it },
-                            label = { Text("URL base HTTPS") },
+                            label = { Text("URL base HTTPS (HTTP só loopback)") },
                             placeholder = { Text("https://openrouter.ai/api/v1") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             singleLine = true,
