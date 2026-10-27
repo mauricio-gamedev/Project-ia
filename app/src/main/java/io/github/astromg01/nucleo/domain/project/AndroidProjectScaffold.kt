@@ -176,17 +176,22 @@ object AndroidProjectScaffold {
             content.contains("android.intent.category.LAUNCHER")
 
     private fun findLauncher(files: List<GeneratedProjectFile>): String? {
+        val kotlinPackage = Regex("""(?m)^\\s*package\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)""")
         val kotlinActivity = Regex(
-            """(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*[\r\n]+(?:(?:(?!\bpackage\b)[\s\S]){0,2500}?)\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*:\s*(?:androidx\.activity\.ComponentActivity|androidx\.appcompat\.app\.AppCompatActivity|android\.app\.Activity|ComponentActivity|AppCompatActivity|Activity)\s*\(""",
+            """\\bclass\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:\\([^)]*\\))?\\s*:\\s*(?:androidx\\.activity\\.ComponentActivity|androidx\\.appcompat\\.app\\.AppCompatActivity|android\\.app\\.Activity|ComponentActivity|AppCompatActivity|Activity)\\s*\\(""",
         )
+        val javaPackage = Regex("""(?m)^\\s*package\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*;""")
         val javaActivity = Regex(
-            """(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;[\s\S]{0,5000}?\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s+extends\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Activity|AppCompatActivity|ComponentActivity)\b""",
+            """\\bclass\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+extends\\s+(?:[A-Za-z_][A-Za-z0-9_]*\\.)*(?:Activity|AppCompatActivity|ComponentActivity)\\b""",
         )
         for (file in files) {
             val lower = file.path.lowercase(Locale.ROOT)
             if (!(lower.startsWith("app/src/main/") && (lower.endsWith(".kt") || lower.endsWith(".java")))) continue
-            val match = if (lower.endsWith(".kt")) kotlinActivity.find(file.content) else javaActivity.find(file.content)
-            if (match != null) return "${match.groupValues[1]}.${match.groupValues[2]}"
+            val packageMatch = if (lower.endsWith(".kt")) kotlinPackage.find(file.content) else javaPackage.find(file.content)
+            val classMatch = if (lower.endsWith(".kt")) kotlinActivity.find(file.content) else javaActivity.find(file.content)
+            if (packageMatch != null && classMatch != null) {
+                return "${packageMatch.groupValues[1]}.${classMatch.groupValues[1]}"
+            }
         }
         return null
     }
