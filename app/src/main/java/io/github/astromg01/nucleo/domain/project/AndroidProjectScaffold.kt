@@ -214,13 +214,16 @@ object AndroidProjectScaffold {
     }
 
     private fun extractLiteralDependencies(buildFile: String): List<String> {
-        val regex = Regex(
-            """(?m)^\s*(implementation|api|testImplementation|androidTestImplementation|debugImplementation|compileOnly|runtimeOnly)\(\s*["']([^"']+)["']\s*\)\s*$""",
+        val configurations = "implementation|api|testImplementation|androidTestImplementation|debugImplementation|compileOnly|runtimeOnly"
+        val kotlinDsl = Regex(
+            """(?m)^\s*($configurations)\(\s*["']([^"']+)["']\s*\)\s*$""",
         )
-        return regex.findAll(buildFile)
+        val groovyDsl = Regex(
+            """(?m)^\s*($configurations)\s+["']([^"']+)["']\s*$""",
+        )
+        return (kotlinDsl.findAll(buildFile).toList() + groovyDsl.findAll(buildFile).toList())
             .map { "${it.groupValues[1]}(\"${it.groupValues[2]}\")" }
             .distinct()
-            .toList()
     }
 
     private fun extractPermissions(manifest: String): List<String> {
