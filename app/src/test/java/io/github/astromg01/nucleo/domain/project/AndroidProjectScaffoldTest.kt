@@ -97,7 +97,7 @@ class AndroidProjectScaffoldTest {
         assertTrue(result.replacedPaths.contains("app/build.gradle.kts"))
         assertTrue(result.replacedPaths.contains("app/src/main/AndroidManifest.xml"))
         assertTrue(files["app/build.gradle.kts"]!!.content.contains("androidx.camera:camera-camera2:1.4.2"))
-        assertTrue(files["settings.gradle.kts"]!!.content.contains("include(\"\:app\")".replace("\\:", ":")))
+        assertTrue(files["settings.gradle.kts"]!!.content.contains("include(\":app\")"))
         assertTrue(files["app/src/main/AndroidManifest.xml"]!!.content.contains("android.permission.INTERNET"))
     }
 
