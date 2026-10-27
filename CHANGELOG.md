@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0-alpha — 2026-10-27
+
+### AutoRouter e continuidade
+- Added multiple OpenAI-compatible fallback profiles with separately encrypted API keys.
+- Route code-generation/review/repair requests toward higher user-assigned capability tiers after the primary route fails; ordinary chat follows explicit priority order.
+- Persist per-route cooldowns for rate limits, authentication errors, timeouts, server failures, and provider compatibility errors; honor numeric `Retry-After` for HTTP 429.
+- Added per-route input-context budgets. The context handoff preserves system instructions, the original user task, and recent messages; it omits old middle messages only when necessary and refuses to cut the mandatory task.
+
+### Code review and repair
+- Added AI-assisted static review with path-validated findings and explicit consent before sending staged source to a remote model.
+- Added bounded repair proposals restricted to existing staged paths. Proposed code is placed in a separate staging revision, diff previews are shown, and changes are applied only after user confirmation.
+- Refuses complete repair when the review was partial, files were omitted, or source contents were truncated. No generated source is executed or compiled.
+
+### FreeLLMAPI local gateway
+- Permit plain HTTP only for loopback endpoints (`localhost`, `127.0.0.1`, `::1`) to support a gateway such as FreeLLMAPI running locally in Termux; external HTTP hosts remain rejected.
+- Added an Android network security configuration with cleartext disabled by default and loopback-only exceptions.
+- Version 0.4.0-alpha / versionCode 7; debug app ID suffix `.debugautorouter` and launcher label “Núcleo AI • AutoRouter” keep this build separate from prior test installs.
+
+### Validation status
+- The current commit must pass Android unit tests and debug APK verification before its artifact is used. Capability-tier values are user-assigned preferences, not automatic model benchmarks.
+
 ## 0.3.3-alpha — 2026-10-27
 
 ### Armazenamento e rede
