@@ -232,6 +232,41 @@ fun ProjectFactoryScreen(container: AppContainer) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        OutlinedButton(
+            onClick = {
+                when {
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.R -> {
+                        status = "O acesso total por configurações especiais está disponível no Android 11 ou superior."
+                        statusIsError = true
+                    }
+                    Environment.isExternalStorageManager() -> {
+                        hasAllFilesAccess = true
+                        status = "O acesso total aos arquivos já está autorizado. Quando houver um rascunho, use Exportar direto para Downloads."
+                        statusIsError = false
+                    }
+                    else -> {
+                        try {
+                            status = "Na tela do Android, ative ‘Permitir gerenciamento de todos os arquivos’ para Núcleo AI • Arquivos."
+                            statusIsError = false
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                            allFilesAccessLauncher.launch(intent)
+                        } catch (error: Exception) {
+                            status = "Não foi possível abrir a tela de permissão de arquivos: ${error.message ?: "erro desconhecido"}"
+                            statusIsError = true
+                        }
+                    }
+                }
+            },
+            enabled = !exporting && !generating,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                if (hasAllFilesAccess) "Acesso total aos arquivos: autorizado"
+                else "Conceder permissão total aos arquivos",
+            )
+        }
 
         OutlinedTextField(
             value = projectName,
