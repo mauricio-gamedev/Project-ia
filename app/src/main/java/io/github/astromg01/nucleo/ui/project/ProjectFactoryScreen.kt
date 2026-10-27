@@ -1,7 +1,11 @@
 package io.github.astromg01.nucleo.ui.project
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.IBinder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.github.astromg01.nucleo.AppContainer
+import io.github.astromg01.nucleo.export.IShizukuExportService
+import io.github.astromg01.nucleo.export.ShizukuExportService
 import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
 import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
@@ -54,10 +60,17 @@ import io.github.astromg01.nucleo.domain.project.StagedProject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
+import java.util.UUID
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import rikka.shizuku.Shizuku
 
 @Composable
 fun ProjectFactoryScreen(container: AppContainer) {
@@ -398,8 +411,61 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         enabled = !exporting && !generating,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (exporting) "Exportando ZIP…" else "Exportar projeto como ZIP")
+                        Text(if (exporting) "Exportando ZIP…" else "Salvar ZIP pelo seletor do Android")
                     }
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                when {
+                                    !Shizuku.pingBinder() -> {
+                                        status = "Shizuku não está iniciado. Abre o Shizuku, inicia o serviço e tenta novamente."
+                                        statusIsError = true
+                                    }
+                                    Shizuku.isPreV11() -> {
+                                        status = "Esta integração exige Shizuku v11 ou superior."
+                                        statusIsError = true
+                                    }
+                                    Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED -> {
+                                        Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE)
+                                        status = "Autoriza o Núcleo AI no diálogo do Shizuku. Depois toca novamente neste botão."
+                                        statusIsError = false
+                                    }
+                                    !exporting && !generating -> {
+                                        exporting = true
+                                        status = "Preparando ZIP e enviando ao serviço autorizado do Shizuku…"
+                                        statusIsError = false
+                                        scope.launch {
+                                            try {
+                                                status = withContext(Dispatchers.IO) {
+                                                    exportStagedProjectViaShizuku(context, staged)
+                                                }
+                                                statusIsError = false
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (error: Exception) {
+                                                status = error.message ?: "A exportação via Shizuku falhou."
+                                                statusIsError = true
+                                            } finally {
+                                                exporting = false
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (error: Exception) {
+                                status = error.message ?: "Não foi possível consultar a autorização do Shizuku."
+                                statusIsError = true
+                            }
+                        },
+                        enabled = !exporting && !generating,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (exporting) "Exportando via Shizuku…" else "Exportar direto para Download (Shizuku)")
+                    }
+                    Text(
+                        "A opção Shizuku grava em Download/NucleoAIProjects e exige o serviço Shizuku iniciado e autorizado. A opção do seletor Android continua disponível como alternativa.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     OutlinedButton(
                         onClick = { discardCurrentDraft(showStatus = true) },
                         enabled = !exporting && !generating,
@@ -577,6 +643,129 @@ private fun exportStagedProjectZip(
         throw IOException("A exportação ZIP falhou. O Núcleo tentou remover o arquivo incompleto.", error)
     }
 }
+
+private data class BoundShizukuExportService(
+    val args: Shizuku.UserServiceArgs,
+    val connection: ServiceConnection,
+    val remote: IShizukuExportService,
+)
+
+private suspend fun exportStagedProjectViaShizuku(
+    context: Context,
+    staged: StagedProject,
+): String {
+    if (!Shizuku.pingBinder()) throw IOException("Shizuku não está iniciado. Inicie-o e tente novamente.")
+    if (Shizuku.isPreV11()) throw IOException("A integração exige Shizuku v11 ou superior.")
+    if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+        throw SecurityException("O Núcleo AI ainda não recebeu autorização do Shizuku.")
+    }
+
+    val archive = File(context.cacheDir, "nucleo-export-\${UUID.randomUUID()}.zip")
+    var bound: BoundShizukuExportService? = null
+    try {
+        val count = ProjectFactory().writeZip(staged, FileOutputStream(archive))
+        if (count != staged.files.size || !archive.isFile || archive.length() <= 0L) {
+            throw IOException("O ZIP temporário não contém todos os arquivos esperados.")
+        }
+
+        bound = bindShizukuExportService(context)
+        val remote = bound.remote
+        remote.beginExport(safeZipFilename(staged.name))
+        try {
+            FileInputStream(archive).use { input ->
+                val buffer = ByteArray(SHIZUKU_CHUNK_BYTES)
+                while (true) {
+                    val size = input.read(buffer)
+                    if (size < 0) break
+                    if (size == 0) continue
+                    remote.writeChunk(buffer.copyOf(size))
+                }
+            }
+            val savedPath = remote.finishExport()
+            return "ZIP salvo via Shizuku em: $savedPath. O fonte foi exportado; ainda não foi executado nem compilado."
+        } catch (error: Exception) {
+            try {
+                remote.abortExport()
+            } catch (_: Exception) {
+                // The remote service also cleans up its partial file when it is destroyed.
+            }
+            throw IOException(
+                "A cópia via Shizuku falhou. O Núcleo tentou remover o arquivo temporário; confira se o serviço segue ativo.",
+                error,
+            )
+        }
+    } finally {
+        archive.delete()
+        bound?.let { connection ->
+            try {
+                Shizuku.unbindUserService(connection.args, connection.connection, true)
+            } catch (_: Exception) {
+                // Best-effort shutdown of this one-shot export service.
+            }
+        }
+    }
+}
+
+private suspend fun bindShizukuExportService(context: Context): BoundShizukuExportService {
+    val args = Shizuku.UserServiceArgs(
+        ComponentName(context, ShizukuExportService::class.java),
+    )
+        .daemon(false)
+        .tag("nucleo-ai-project-export-v1")
+        .version(1)
+
+    return suspendCancellableCoroutine { continuation ->
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                if (!continuation.isActive) return
+                if (!binder.pingBinder()) {
+                    continuation.resumeWithException(IOException("O serviço do Shizuku retornou um Binder inválido."))
+                    return
+                }
+                val remote = IShizukuExportService.Stub.asInterface(binder)
+                continuation.resume(BoundShizukuExportService(args, this, remote))
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                if (continuation.isActive) {
+                    continuation.resumeWithException(IOException("O serviço do Shizuku foi desconectado."))
+                }
+            }
+
+            override fun onBindingDied(name: ComponentName) {
+                if (continuation.isActive) {
+                    continuation.resumeWithException(IOException("A ligação com Shizuku morreu; reinicie o serviço e tente novamente."))
+                }
+            }
+
+            override fun onNullBinding(name: ComponentName) {
+                if (continuation.isActive) {
+                    continuation.resumeWithException(IOException("O Shizuku não forneceu um serviço de exportação."))
+                }
+            }
+        }
+
+        try {
+            Shizuku.bindUserService(args, connection)
+        } catch (error: Exception) {
+            continuation.resumeWithException(
+                IOException("Não foi possível iniciar o serviço de exportação do Shizuku.", error),
+            )
+            return@suspendCancellableCoroutine
+        }
+
+        continuation.invokeOnCancellation {
+            try {
+                Shizuku.unbindUserService(args, connection, true)
+            } catch (_: Exception) {
+                // Best-effort cancellation cleanup.
+            }
+        }
+    }
+}
+
+private const val SHIZUKU_PERMISSION_REQUEST_CODE = 4107
+private const val SHIZUKU_CHUNK_BYTES = 128 * 1024
 
 private fun safeZipFilename(raw: String): String {
     val base = raw.map { character ->
