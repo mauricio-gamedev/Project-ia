@@ -23,8 +23,10 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-dev"
+            // Install this one-off test build beside previous CI APKs so signature changes
+            // cannot force the user to uninstall the working app and lose its local data.
+            applicationIdSuffix = ".debugshizuku"
+            versionNameSuffix = "-shizuku"
         }
         release {
             isMinifyEnabled = true
