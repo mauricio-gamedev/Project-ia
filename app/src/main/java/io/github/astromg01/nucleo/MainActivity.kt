@@ -811,7 +811,7 @@ private fun SettingsScreen(container: AppContainer) {
     var savedConfig by remember { mutableStateOf(container.providerPreferences.load()) }
     var providerName by remember { mutableStateOf(savedConfig.providerName) }
     var baseUrl by remember { mutableStateOf(savedConfig.baseUrl) }
-    var modelName by remember { mutableStateOf(current.modelName) }
+    var modelName by remember { mutableStateOf(savedConfig.modelName) }
     var apiKey by remember { mutableStateOf("") }
     var keySaved by remember { mutableStateOf(container.secretStore.readApiKey() != null) }
     var status by remember { mutableStateOf("") }
