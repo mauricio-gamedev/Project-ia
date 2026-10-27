@@ -375,7 +375,7 @@ class GitHubAndroidBuildAdapter(
                 }
                 val leaf = entry.name.substringAfterLast('/').substringAfterLast('\\')
                 when {
-                    leaf == "app-debug.apk" || (leaf.endsWith(".apk") && !extracted) -> {
+                    (leaf == "app-debug.apk" || leaf.endsWith(".apk")) && !extracted -> {
                         FileOutputStream(destination).use { output ->
                             val buffer = ByteArray(64 * 1024)
                             val digest = MessageDigest.getInstance("SHA-256")
@@ -393,7 +393,6 @@ class GitHubAndroidBuildAdapter(
                             }
                             val actual = digest.digest().joinToString("") { "%02x".format(it) }
                             extracted = true
-                            computedSha = actual
                         }
                     }
                     leaf.endsWith(".sha256", ignoreCase = true) && entry.size <= 2_048L -> {
@@ -419,8 +418,6 @@ class GitHubAndroidBuildAdapter(
         }
         return actualSha
     }
-
-    private var computedSha: String = ""
 
     private fun sha256File(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -542,16 +539,16 @@ class GitHubAndroidBuildAdapter(
                     shell: bash
                     run: |
                       set -euo pipefail
-                      test -d "$§ANDROID_HOME/cmdline-tools"
-                      sdkmanager_path="$(find "$§ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print | sort -V | tail -n 1)"
-                      test -n "$§sdkmanager_path"
-                      echo "sdkmanager=$§sdkmanager_path" >> "$§GITHUB_OUTPUT"
+                      test -d "§ANDROID_HOME/cmdline-tools"
+                      sdkmanager_path="$(find "§ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print | sort -V | tail -n 1)"
+                      test -n "§sdkmanager_path"
+                      echo "sdkmanager=§sdkmanager_path" >> "§GITHUB_OUTPUT"
                   - name: Install Android SDK packages
                     shell: bash
                     run: |
                       set -euo pipefail
-                      yes | "$§"{{ steps.android-sdk.outputs.sdkmanager }} --licenses >/dev/null || true
-                      "$§"{{ steps.android-sdk.outputs.sdkmanager }} "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+                      yes | "§{{ steps.android-sdk.outputs.sdkmanager }} --licenses >/dev/null || true
+                      "§{{ steps.android-sdk.outputs.sdkmanager }} "platforms;android-36" "build-tools;36.0.0" "platform-tools"
                   - name: Download and verify Gradle 8.13
                     shell: bash
                     run: |
@@ -580,10 +577,10 @@ class GitHubAndroidBuildAdapter(
                     run: |
                       set -euo pipefail
                       apk="project-source/app/build/outputs/apk/debug/app-debug.apk"
-                      test -s "$§apk"
-                      "$§ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$§apk"
+                      test -s "§apk"
+                      "§ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "§apk"
                       mkdir -p dist
-                      cp "$§apk" dist/app-debug.apk
+                      cp "§apk" dist/app-debug.apk
                       (cd dist && sha256sum app-debug.apk > app-debug.apk.sha256)
                   - name: Publish APK artifact
                     uses: actions/upload-artifact@v4
