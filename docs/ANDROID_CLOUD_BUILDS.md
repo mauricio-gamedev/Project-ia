@@ -30,6 +30,6 @@ O Núcleo instala no repositório um workflow fixo chamado nucleo-android-build.
 
 - Projeto Android com módulo Gradle :app, estrutura compatível com Gradle 8.13 / AGP 8.13.2 / Kotlin 2.3.21, Android SDK 36 e minSdk 26.
 - O ZIP do fonte é limitado a 8 MiB; cada arquivo individual tem o limite validado pelo Project Factory.
-- O adaptador aguarda até oito minutos pelo resultado. Um timeout de espera não cancela necessariamente a execução no GitHub Actions; o link do workflow é mostrado para consulta.
+- O adaptador aguarda até vinte minutos pelo resultado. Um timeout de espera não cancela necessariamente a execução no GitHub Actions; o link do workflow é mostrado para consulta.
 - Se o build falhar, o Núcleo mostra o link do log; ele não deve afirmar que houve APK se o job falhar ou não publicar o artefato.
 - Compilar não prova que todas as funcionalidades do aplicativo funcionam. Execute testes no dispositivo e inspecione permissões, comportamento e código antes de instalar.
