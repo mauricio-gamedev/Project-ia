@@ -14,14 +14,11 @@ import java.util.Locale
  * and never runs shell commands. Only a sanitized filename is accepted.
  */
 @Keep
-class ShizukuExportService : IShizukuExportService.Stub() {
+class ShizukuExportService() : IShizukuExportService.Stub() {
     private var output: FileOutputStream? = null
     private var temporaryFile: File? = null
     private var destinationFile: File? = null
     private var writtenBytes = 0L
-
-    @Keep
-    constructor()
 
     @Synchronized
     override fun beginExport(requestedName: String): String {
