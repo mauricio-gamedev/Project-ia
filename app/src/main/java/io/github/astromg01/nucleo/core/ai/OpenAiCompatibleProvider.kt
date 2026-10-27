@@ -21,10 +21,10 @@ class OpenAiCompatibleProvider(
     override val id: String = configuration.providerName.ifBlank { "OpenAI-compatible" }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(100, TimeUnit.SECONDS)
+        .connectTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(210, TimeUnit.SECONDS)
         .build()
 
     override suspend fun generate(request: AiRequest): AiResponse = withContext(Dispatchers.IO) {
