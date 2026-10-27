@@ -49,6 +49,11 @@ class OpenAiCompatibleProvider(
             .put("messages", messages)
             .put("temperature", request.temperature.coerceIn(0.0, 2.0))
         request.maxOutputTokens?.takeIf { it > 0 }?.let { payload.put("max_tokens", it) }
+        if (request.jsonObjectMode) {
+            // OpenRouter and many OpenAI-compatible providers support JSON mode.
+            // Callers may retry without this optional parameter when an endpoint rejects it.
+            payload.put("response_format", JSONObject().put("type", "json_object"))
+        }
 
         val body = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
         val httpRequest = Request.Builder()
