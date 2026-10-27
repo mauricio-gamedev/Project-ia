@@ -17,7 +17,7 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Tarefas de planejamento executadas em WorkManager, com estado persistido, checkpoints de conclusão e tentativas limitadas para falhas transitórias de rede.
 - **NúcleoLang 0.2 alfa (fundação expansível)**: lexer, parser, AST e interpretador Kotlin autorais para variáveis, funções, condições, loops, listas mutáveis, indexação, bibliotecas iniciais e funções de host registradas explicitamente, com orçamento de execução e sem shell/rede/arquivos embutidos.
 - Playground NúcleoLang dentro do app para editar e executar exemplos localmente, sem Termux.
-- **Project Factory alpha**: geração assistida por modelo de manifestos JSON, validação de caminhos e perfis, staging privado com hashes SHA-256 e exportação explícita dos arquivos-fonte via Android Storage Access Framework.
+- **Project Factory alpha**: geração assistida por modelo de manifestos JSON, validação de caminhos e perfis, staging privado com hashes SHA-256, prévia de conteúdo por arquivo com verificação de integridade e descarte seguro do rascunho, além da exportação explícita dos arquivos-fonte via Android Storage Access Framework.
 - Leitura opcional e limitada de arquivos textuais de um projeto, somente depois de consentimento explícito na criação da tarefa.
 - Testes unitários para validar configurações dos provedores.
 - Workflow de CI para executar testes e gerar um APK de depuração.
