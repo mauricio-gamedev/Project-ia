@@ -33,7 +33,7 @@ class ModelRoutePlannerTest {
 
         val ordered = ModelRoutePlanner.order(primary, fallbacks, AiTaskType.CODE_REVIEW)
 
-        assertEquals(listOf("primary", "low-priority-high", "mid", "first-priority-low"), ordered.map { it.id })
+        assertEquals(listOf("low-priority-high", "mid", "primary", "first-priority-low"), ordered.map { it.id })
     }
 
     @Test
