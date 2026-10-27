@@ -10,6 +10,8 @@ data class AiRequest(
     val messages: List<AiMessage>,
     val temperature: Double = 0.2,
     val maxOutputTokens: Int? = null,
+    /** Ask compatible providers for a syntactically valid JSON object when supported. */
+    val jsonObjectMode: Boolean = false,
 )
 
 data class AiResponse(
