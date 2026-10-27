@@ -54,6 +54,7 @@ import io.github.astromg01.nucleo.export.IShizukuExportService
 import io.github.astromg01.nucleo.export.ShizukuExportService
 import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
+import io.github.astromg01.nucleo.core.ai.AiTaskType
 import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
 import io.github.astromg01.nucleo.domain.project.ProjectDraft
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
@@ -379,6 +380,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                 temperature = 0.0,
                                 maxOutputTokens = 12_000,
                                 jsonObjectMode = true,
+                                taskType = AiTaskType.CODE_GENERATION,
                             )
                             val response = try {
                                 container.modelRouter.generate(request)
