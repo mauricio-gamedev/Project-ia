@@ -90,7 +90,7 @@ Nunca inclua a chave na URL, em prompts, arquivos de projeto ou commits. O app r
 - O chat pode enviar mensagens recentes e algumas memórias persistentes ao provedor, conforme informado na interface.
 - O conteúdo armazenado pelo provedor segue os termos e políticas desse próprio provedor.
 
-Veja [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), a [especificação NúcleoLang](docs/NUCLEOLANG_SPEC.md), a [arquitetura de expansão da linguagem](docs/NUCLEOLANG_PLATFORM_ARCHITECTURE.md) e a [especificação Project Factory](docs/PROJECT_FACTORY_SPEC.md).
+Veja [docs/AI_ROUTING_AND_CODE_REVIEW.md](docs/AI_ROUTING_AND_CODE_REVIEW.md) para configurar o AutoRouter, conectar um gateway FreeLLMAPI local, entender a transferência de contexto e usar a revisão/reparo de código. Também consulte [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), a [especificação NúcleoLang](docs/NUCLEOLANG_SPEC.md), a [arquitetura de expansão da linguagem](docs/NUCLEOLANG_PLATFORM_ARCHITECTURE.md) e a [especificação Project Factory](docs/PROJECT_FACTORY_SPEC.md).
 
 ## Autoria e licença
 
@@ -98,10 +98,8 @@ O código de aplicação nesta base foi escrito de forma independente para o Nú
 
 ## Roadmap resumido
 
-1. Validar build, interface, persistência e conexão com provedor.
-2. Evoluir e testar o core autoral de NúcleoLang, acrescentando coleções e capacidades com limites explícitos antes de permitir efeitos colaterais.
-2. Melhorar seleção e contexto por projeto, indexação incremental e gestão de memória.
-3. Introduzir ferramentas de leitura/diff com política explícita de permissões.
-4. Implementar execução de mudanças em sandbox, revisão de diff, testes e rollback.
+1. **Concluído nesta alpha:** perfis de provedor alternativos, failover/cooldowns, seleção por tipo de tarefa, transferência de contexto com limites e revisão estática por IA com propostas de reparo isoladas.
+2. **Próximo:** validação de ponta a ponta no dispositivo, testes de compatibilidade dos provedores e visibilidade de cotas/cooldowns na interface.
+3. **Depois:** executor de lint/test/build em ambiente isolado, com limites de recursos, cancelamento, rede restrita, diff e rollback.
+4. Integrar catálogo/descoberta de modelos e telemetria de qualidade sem assumir que rótulos de capacidade ou cotas gratuitas são garantidos.
 5. Integrar runtime local após medir memória, velocidade e compatibilidade reais no Android.
-6. Adicionar roteamento híbrido mais avançado e agentes especializados após telemetria e testes.
