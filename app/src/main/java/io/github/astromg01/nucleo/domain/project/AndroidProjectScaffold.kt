@@ -28,53 +28,69 @@ object AndroidProjectScaffold {
         fun existing(path: String): GeneratedProjectFile? =
             files.firstOrNull { it.path.equals(path, ignoreCase = true) }
 
+        fun remove(path: String) {
+            val current = existing(path) ?: return
+            files.remove(current)
+            if (current.path !in replaced) replaced += current.path
+        }
+
         fun set(path: String, content: String, replaceInvalid: Boolean = false) {
             val current = existing(path)
             if (current == null) {
                 files += GeneratedProjectFile(path, content)
                 added += path
-            } else if (replaceInvalid) {
+            } else if (replaceInvalid && current.content != content) {
                 val index = files.indexOf(current)
                 files[index] = GeneratedProjectFile(path, content)
-                if (!replaced.contains(path)) replaced += path
+                if (current.path !in replaced) replaced += current.path
+            }
+        }
+
+        fun ensureScriptPair(
+            kotlinPath: String,
+            groovyPath: String,
+            isUsable: (String) -> Boolean,
+            template: (List<String>) -> String,
+        ) {
+            val kotlinFile = existing(kotlinPath)
+            val groovyFile = existing(groovyPath)
+            val candidates = listOfNotNull(kotlinFile, groovyFile)
+            val valid = candidates.firstOrNull { isUsable(it.content) }
+            if (valid != null) {
+                candidates.filter { it.path != valid.path }.forEach { remove(it.path) }
+            } else {
+                val retainedDependencies = candidates.flatMap { extractLiteralDependencies(it.content) }.distinct()
+                candidates.forEach { remove(it.path) }
+                set(kotlinPath, template(retainedDependencies))
             }
         }
 
         val slug = packageSlug(draft.name)
         val projectTitle = draft.name.trim().ifBlank { "Núcleo App" }
-        val rootSettings = existing("settings.gradle.kts")
-        if (rootSettings == null || !isUsableSettings(rootSettings.content)) {
-            set(
-                "settings.gradle.kts",
-                settingsTemplate(projectTitle),
-                replaceInvalid = rootSettings != null,
-            )
-        }
 
-        val rootBuild = existing("build.gradle.kts")
-        if (rootBuild == null || !isUsableRootBuild(rootBuild.content)) {
-            set(
-                "build.gradle.kts",
-                rootBuildTemplate(),
-                replaceInvalid = rootBuild != null,
-            )
-        }
+        ensureScriptPair(
+            "settings.gradle.kts",
+            "settings.gradle",
+            { isUsableSettings(it) },
+            { _ -> settingsTemplate(projectTitle) },
+        )
+        ensureScriptPair(
+            "build.gradle.kts",
+            "build.gradle",
+            { isUsableRootBuild(it) },
+            { _ -> rootBuildTemplate() },
+        )
 
         set(
             "gradle.properties",
             "org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8\nandroid.useAndroidX=true\nkotlin.code.style=official\n",
         )
-
-        val appBuildPath = "app/build.gradle.kts"
-        val appBuild = existing(appBuildPath)
-        if (appBuild == null || !isUsableAppBuild(appBuild.content)) {
-            val retainedDependencies = appBuild?.content?.let(::extractLiteralDependencies).orEmpty()
-            set(
-                appBuildPath,
-                appBuildTemplate(slug, retainedDependencies),
-                replaceInvalid = appBuild != null,
-            )
-        }
+        ensureScriptPair(
+            "app/build.gradle.kts",
+            "app/build.gradle",
+            { isUsableAppBuild(it) },
+            { dependencies -> appBuildTemplate(slug, dependencies) },
+        )
 
         set(
             "gradle/wrapper/gradle-wrapper.properties",
@@ -93,21 +109,16 @@ object AndroidProjectScaffold {
         }
 
         val manifest = existing(MANIFEST_PATH)
-        if (manifest == null || !isUsableManifest(manifest.content)) {
-            val preservedPermissions = manifest?.content
-                ?.let(::extractPermissions)
-                .orEmpty()
-            set(
-                MANIFEST_PATH,
-                manifestTemplate(projectTitle, launcherClass, preservedPermissions),
-                replaceInvalid = manifest != null,
-            )
+        if (manifest == null) {
+            set(MANIFEST_PATH, manifestTemplate(projectTitle, launcherClass, emptyList()))
+        } else {
+            val repaired = repairManifest(manifest.content, projectTitle, launcherClass)
+            if (repaired != manifest.content) {
+                set(MANIFEST_PATH, repaired, replaceInvalid = true)
+            }
         }
 
-        set(
-            "README.md",
-            readmeTemplate(projectTitle),
-        )
+        set("README.md", readmeTemplate(projectTitle))
 
         val result = ProjectDraft(
             name = draft.name,
@@ -115,17 +126,22 @@ object AndroidProjectScaffold {
             description = draft.description,
             files = files,
         )
-        // Run the same path/secret/size/profile validation that staging will enforce.
         ProjectFactory().validate(result)
         val finalPaths = result.files.associateBy { it.path.lowercase(Locale.ROOT) }
-        require(isUsableSettings(finalPaths["settings.gradle.kts"]?.content.orEmpty())) {
-            "O scaffold Android não conseguiu preparar settings.gradle.kts."
+        val settingsContent = finalPaths["settings.gradle.kts"]?.content
+            ?: finalPaths["settings.gradle"]?.content.orEmpty()
+        val rootBuildContent = finalPaths["build.gradle.kts"]?.content
+            ?: finalPaths["build.gradle"]?.content.orEmpty()
+        val appBuildContent = finalPaths["app/build.gradle.kts"]?.content
+            ?: finalPaths["app/build.gradle"]?.content.orEmpty()
+        require(isUsableSettings(settingsContent)) {
+            "O scaffold Android não conseguiu preparar os settings do Gradle."
         }
-        require(isUsableRootBuild(finalPaths["build.gradle.kts"]?.content.orEmpty())) {
+        require(isUsableRootBuild(rootBuildContent)) {
             "O scaffold Android não conseguiu preparar o build.gradle da raiz."
         }
-        require(isUsableAppBuild(finalPaths["app/build.gradle.kts"]?.content.orEmpty())) {
-            "O scaffold Android não conseguiu preparar app/build.gradle.kts."
+        require(isUsableAppBuild(appBuildContent)) {
+            "O scaffold Android não conseguiu preparar app/build.gradle."
         }
         require(isUsableManifest(finalPaths[MANIFEST_PATH.lowercase(Locale.ROOT)]?.content.orEmpty())) {
             "O scaffold Android não conseguiu preparar o AndroidManifest.xml."
@@ -283,6 +299,89 @@ object AndroidProjectScaffold {
             ${dependencies.joinToString("\n") { "    $it" }}
             }
         """.trimIndent() + "\n"
+    }
+
+    private fun repairManifest(
+        source: String,
+        name: String,
+        activityName: String,
+    ): String {
+        val manifestTagRegex = Regex("""(?is)<manifest\b[^>]*>""")
+        val applicationTagRegex = Regex("""(?is)<application\b[^>]*>""")
+        if (manifestTagRegex.find(source) == null ||
+            applicationTagRegex.find(source) == null ||
+            !source.contains("</application", ignoreCase = true)
+        ) {
+            return manifestTemplate(name, activityName, extractPermissions(source))
+        }
+
+        var content = source
+        if (!content.contains("android.permission.INTERNET", ignoreCase = true)) {
+            val manifestTag = manifestTagRegex.find(content)
+                ?: return manifestTemplate(name, activityName, extractPermissions(source))
+            val insertAt = manifestTag.range.last + 1
+            content = content.substring(0, insertAt) +
+                "\n    <uses-permission android:name=\"android.permission.INTERNET\" />" +
+                content.substring(insertAt)
+        }
+
+        val activityBlockRegex = Regex("""(?is)<activity\b[^>]*>.*?</activity\s*>""")
+        val blocks = activityBlockRegex.findAll(content).toList()
+        val launcherBlock = blocks.firstOrNull {
+            it.value.contains("android.intent.action.MAIN") &&
+                it.value.contains("android.intent.category.LAUNCHER")
+        }
+        val desiredSimpleName = activityName.substringAfterLast('.')
+        val desiredBlock = blocks.firstOrNull { match ->
+            val opening = match.value.substringBefore(">")
+            val declaredName = Regex("""(?is)android:name\s*=\s*["']([^"']+)["']""")
+                .find(opening)?.groupValues?.get(1)
+            declaredName == activityName ||
+                declaredName == desiredSimpleName ||
+                declaredName == ".$desiredSimpleName" ||
+                (!declaredName.isNullOrBlank() && activityName.endsWith(".$declaredName"))
+        }
+        val target = launcherBlock ?: desiredBlock ?: blocks.firstOrNull()
+
+        if (target == null) {
+            val appTag = applicationTagRegex.find(content)
+                ?: return manifestTemplate(name, activityName, extractPermissions(source))
+            val appClose = content.indexOf("</application", appTag.range.last + 1)
+            if (appClose < 0) return manifestTemplate(name, activityName, extractPermissions(source))
+            val launcherMarkup = """
+                <activity android:name="$activityName" android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            """.trimIndent()
+            return content.substring(0, appClose) + "\n        " + launcherMarkup + "\n    " + content.substring(appClose)
+        }
+
+        val openingEnd = target.value.indexOf('>')
+        if (openingEnd < 0) return manifestTemplate(name, activityName, extractPermissions(source))
+        val opening = target.value.substring(0, openingEnd + 1)
+        val exportedRegex = Regex("""(?is)android:exported\s*=\s*["'][^"']*["']""")
+        val fixedOpening = if (exportedRegex.containsMatchIn(opening)) {
+            exportedRegex.replace(opening, "android:exported=\"true\"")
+        } else {
+            opening.dropLast(1) + " android:exported=\"true\">"
+        }
+        var fixedBlock = fixedOpening + target.value.substring(openingEnd + 1)
+        if (launcherBlock == null) {
+            val targetOpeningEnd = fixedBlock.indexOf('>')
+            val filter = """
+                <intent-filter>
+                    <action android:name="android.intent.action.MAIN" />
+                    <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+            """.trimIndent()
+            fixedBlock = fixedBlock.substring(0, targetOpeningEnd + 1) +
+                "\n                    " + filter + "\n                    " +
+                fixedBlock.substring(targetOpeningEnd + 1)
+        }
+        return content.replaceRange(target.range, fixedBlock)
     }
 
     private fun manifestTemplate(name: String, activityName: String, preservedPermissions: List<String>): String {
