@@ -516,7 +516,7 @@ class GitHubAndroidBuildAdapter(
         private const val MAX_SOURCE_ARCHIVE_BYTES = 8L * 1024L * 1024L
         private const val MAX_ARTIFACT_ARCHIVE_BYTES = 160L * 1024L * 1024L
         private const val MAX_APK_BYTES = 120L * 1024L * 1024L
-        private const val MAX_POLL_ATTEMPTS = 48
+        private const val MAX_POLL_ATTEMPTS = 120
         private const val POLL_INTERVAL_MILLIS = 10_000L
         private val OWNER_PATTERN = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37})")
         private val REPOSITORY_PATTERN = Regex("[A-Za-z0-9_.-]{1,100}")
