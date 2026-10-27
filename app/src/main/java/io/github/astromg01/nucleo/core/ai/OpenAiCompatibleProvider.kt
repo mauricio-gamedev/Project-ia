@@ -67,7 +67,11 @@ class OpenAiCompatibleProvider(
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 // Never surface arbitrary provider response bodies: they can echo user data or secrets.
-                throw ProviderHttpException(response.code)
+                val retryAfterSeconds = response.header("Retry-After")
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.coerceIn(1L, 3_600L)
+                throw ProviderHttpException(response.code, retryAfterSeconds)
             }
             val root = JSONObject(responseBody)
             val choices = root.optJSONArray("choices")
