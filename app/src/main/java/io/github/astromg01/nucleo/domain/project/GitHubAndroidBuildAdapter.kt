@@ -13,6 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -395,8 +396,9 @@ class GitHubAndroidBuildAdapter(
                             extracted = true
                         }
                     }
-                    leaf.endsWith(".sha256", ignoreCase = true) && entry.size <= 2_048L -> {
-                        expectedSha = zip.readBytes().toString(Charsets.UTF_8)
+                    leaf.endsWith(".sha256", ignoreCase = true) -> {
+                        expectedSha = readZipEntryAtMost(zip, 2_048)
+                            .toString(Charsets.UTF_8)
                             .trim()
                             .split(Regex("\\s+"))
                             .firstOrNull()
@@ -417,6 +419,20 @@ class GitHubAndroidBuildAdapter(
             throw IOException("O SHA-256 do APK não corresponde ao checksum publicado pelo GitHub Actions.")
         }
         return actualSha
+    }
+
+    private fun readZipEntryAtMost(input: ZipInputStream, maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(256)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxBytes) throw IOException("O checksum publicado excedeu o limite esperado.")
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private fun sha256File(file: File): String {
