@@ -660,7 +660,7 @@ private suspend fun exportStagedProjectViaShizuku(
         throw SecurityException("O Núcleo AI ainda não recebeu autorização do Shizuku.")
     }
 
-    val archive = File(context.cacheDir, "nucleo-export-\${UUID.randomUUID()}.zip")
+    val archive = File(context.cacheDir, "nucleo-export-" + UUID.randomUUID() + ".zip")
     var bound: BoundShizukuExportService? = null
     try {
         val count = ProjectFactory().writeZip(staged, FileOutputStream(archive))
