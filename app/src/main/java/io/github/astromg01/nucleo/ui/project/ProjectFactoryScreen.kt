@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.github.astromg01.nucleo.AppContainer
@@ -96,6 +97,9 @@ fun ProjectFactoryScreen(container: AppContainer) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
+    val buildPreferences = remember(context) {
+        context.getSharedPreferences("nucleo_android_cloud_build", Context.MODE_PRIVATE)
+    }
 
     var projectName by remember { mutableStateOf("Meu projeto") }
     var description by remember { mutableStateOf("") }
@@ -104,6 +108,15 @@ fun ProjectFactoryScreen(container: AppContainer) {
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var buildRepoOwner by remember { mutableStateOf(buildPreferences.getString("owner", "") ?: "") }
+    var buildRepoName by remember { mutableStateOf(buildPreferences.getString("repository", "") ?: "") }
+    var githubBuildToken by remember { mutableStateOf("") }
+    var githubBuildTokenSaved by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_BUILD_TOKEN_ID) != null) }
+    var verifyingBuildTarget by remember { mutableStateOf(false) }
+    var buildingApk by remember { mutableStateOf(false) }
+    var buildConsent by remember { mutableStateOf(false) }
+    var buildStatus by remember { mutableStateOf("") }
+    var builtApk by remember { mutableStateOf<BuiltAndroidArtifact?>(null) }
     var visibleFileLimit by remember { mutableStateOf(MAX_VISIBLE_FILES) }
     var previewFile by remember { mutableStateOf<StagedFileEvidence?>(null) }
     var preview by remember { mutableStateOf<StagedFilePreview?>(null) }
@@ -202,6 +215,34 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     statusIsError = true
                 } finally {
                     exporting = false
+                }
+            }
+        }
+    }
+
+    val apkSaveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"),
+    ) { uri: Uri? ->
+        val artifact = builtApk
+        if (uri == null) {
+            buildStatus = "Salvamento do APK cancelado."
+        } else if (artifact == null) {
+            buildStatus = "O APK não está disponível; execute a compilação novamente."
+        } else {
+            buildingApk = true
+            buildStatus = "Salvando e verificando o APK no dispositivo…"
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        copyBuiltApkToUri(context, uri, artifact)
+                    }
+                    buildStatus = "APK salvo no destino escolhido. SHA-256 verificado: ${artifact.sha256}."
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    buildStatus = error.message ?: "Não foi possível salvar o APK."
+                } finally {
+                    buildingApk = false
                 }
             }
         }
@@ -394,7 +435,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     clearReviewState()
                     discardCurrentDraft()
                     generating = true
-                    status = "A IA está preparando o manifesto de arquivos…"
+                    status = "A IA está preparando os arquivos; o Núcleo vai completar e validar a estrutura base…"
                     statusIsError = false
                     val requestedName = projectName.trim()
                     val requestedDescription = description.trim()
