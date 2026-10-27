@@ -589,6 +589,6 @@ class GitHubAndroidBuildAdapter(
                       path: dist/*
                       if-no-files-found: error
                       retention-days: 7
-        """.trimIndent().replace("§", "$")
+        """.trimIndent().replace("§", "\$")
     }
 }
