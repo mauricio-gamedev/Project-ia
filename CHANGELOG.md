@@ -15,7 +15,7 @@
 ### Validation
 - Unit tests cover catalog JSON parsing, duplicate/malformed entries, and the distinction between explicitly zero pricing and unknown pricing.
 - Added optional stable-signing support in Gradle and CI using GitHub Actions Secrets. If the secrets are absent, CI warns that its debug APK uses a temporary signer and must not be assumed to update an existing installation.
-- A same-package update requires the exact same signing certificate. The older 0.4.0-alpha artifact and temporary 0.5.0-alpha artifact have different certificate fingerprints, so transition to the new stable signer requires a one-time clean reinstall; app-private history and saved credentials will not survive uninstalling the old test build.
+- The older 0.4.0-alpha artifact used the separate .debugautorouter application ID, while the stable app identity is now io.github.astromg01.nucleo. The old artifact and temporary 0.5.0-alpha artifact also have different certificate fingerprints. A one-time clean install is unavoidable; uninstalling an old build erases app-private history and saved credentials. After stable signing is configured and the final app is installed, future updates can replace it in place.
 
 ## 0.4.0-alpha — 2026-10-27
 

@@ -47,10 +47,8 @@ android {
             if (stableSigningConfigured) {
                 signingConfig = signingConfigs.getByName("stable")
             }
-            // Install this one-off test build beside previous CI APKs so signature changes
-            // cannot force the user to uninstall the working app and lose its local data.
-            applicationIdSuffix = ".debugautorouter"
-            versionNameSuffix = "-autorouter"
+            // Keep one application ID across build types. The optional stable keystore is
+            // required for APKs that should update an existing installation in place.
         }
         release {
             if (stableSigningConfigured) {
