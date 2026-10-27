@@ -22,7 +22,7 @@ class ProviderConfigurationValidatorTest {
             modelName = "model-x",
         )
         assertEquals(
-            "HTTP sem criptografia só é permitido para localhost/127.0.0.1/::1. Provedores remotos precisam usar HTTPS.",
+            "HTTP sem criptografia só é permitido para localhost/127.0.0.1. Provedores remotos precisam usar HTTPS.",
             ProviderConfigurationValidator.validate(config),
         )
     }
