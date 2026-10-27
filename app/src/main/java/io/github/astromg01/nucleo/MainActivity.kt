@@ -1051,6 +1051,11 @@ private fun SettingsScreen(container: AppContainer) {
                                     Text(priceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     TextButton(
                                         onClick = {
+                                            val selectedFromHost = runCatching {
+                                                Uri.parse(baseUrl.trim()).host?.lowercase()
+                                            }.getOrNull()
+                                            // An unsaved key entered for another endpoint must not travel with this model selection.
+                                            if (selectedFromHost != "openrouter.ai") apiKey = ""
                                             providerName = "OpenRouter"
                                             baseUrl = "https://openrouter.ai/api/v1"
                                             modelName = model.id
