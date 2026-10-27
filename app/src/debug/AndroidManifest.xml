@@ -2,6 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application
-        android:label="Núcleo AI • Arquivos"
+        android:label="Núcleo AI • AutoRouter"
         tools:replace="android:label" />
 </manifest>
