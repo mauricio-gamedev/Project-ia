@@ -1,7 +1,9 @@
 package io.github.astromg01.nucleo.domain.project
 
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
@@ -11,6 +13,8 @@ import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.Comparator
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 enum class ProjectProfile {
     ANDROID_APP,
@@ -167,6 +171,83 @@ class ProjectFactory {
             sizeBytes = actualSize,
             sha256 = digest,
         )
+    }
+
+    /**
+     * Writes the staged source files into a ZIP archive after rechecking every path, file size,
+     * and SHA-256 digest. The output stream is closed by this method.
+     */
+    @Throws(IOException::class)
+    fun writeZip(stagedProject: StagedProject, outputStream: OutputStream): Int {
+        val stagePath = stagedProject.directory.toPath().toAbsolutePath().normalize()
+        if (Files.isSymbolicLink(stagePath) ||
+            !Files.isDirectory(stagePath, LinkOption.NOFOLLOW_LINKS)
+        ) {
+            try { outputStream.close() } catch (_: Exception) {}
+            throw IOException("A pasta temporária não existe ou não é segura.")
+        }
+        val realStagePath = try {
+            stagePath.toRealPath()
+        } catch (error: Exception) {
+            try { outputStream.close() } catch (_: Exception) {}
+            throw IOException("Não foi possível verificar a pasta temporária.", error)
+        }
+
+        var written = 0
+        try {
+            ZipOutputStream(BufferedOutputStream(outputStream)).use { zip ->
+                for (evidence in stagedProject.files) {
+                    val segments = evidence.relativePath.split('/')
+                    if (evidence.relativePath.startsWith('/') ||
+                        evidence.relativePath.startsWith('\\') ||
+                        segments.isEmpty() ||
+                        segments.any { it.isBlank() || it == "." || it == ".." || '\\' in it }
+                    ) {
+                        throw IOException("O arquivo tem um caminho inseguro: ${evidence.relativePath}")
+                    }
+
+                    var candidate = stagePath
+                    for (segment in segments) {
+                        candidate = candidate.resolve(segment)
+                        if (Files.isSymbolicLink(candidate)) {
+                            throw IOException("O arquivo contém um link simbólico: ${evidence.relativePath}")
+                        }
+                    }
+                    candidate = candidate.normalize()
+                    if (candidate == stagePath || !candidate.startsWith(stagePath)) {
+                        throw IOException("O arquivo saiu da pasta temporária: ${evidence.relativePath}")
+                    }
+                    val realFile = try {
+                        candidate.toRealPath()
+                    } catch (error: Exception) {
+                        throw IOException("Arquivo temporário ausente: ${evidence.relativePath}", error)
+                    }
+                    if (!realFile.startsWith(realStagePath) ||
+                        !Files.isRegularFile(realFile, LinkOption.NOFOLLOW_LINKS)
+                    ) {
+                        throw IOException("O destino não é um arquivo regular dentro do staging: ${evidence.relativePath}")
+                    }
+                    val size = Files.size(realFile)
+                    if (size != evidence.sizeBytes || size > MAX_FILE_BYTES) {
+                        throw IOException("O tamanho do arquivo mudou após a validação: ${evidence.relativePath}")
+                    }
+                    val bytes = Files.readAllBytes(realFile)
+                    if (bytes.size.toLong() != evidence.sizeBytes || sha256(bytes) != evidence.sha256) {
+                        throw IOException("A integridade do arquivo mudou após a validação: ${evidence.relativePath}")
+                    }
+
+                    zip.putNextEntry(ZipEntry(evidence.relativePath))
+                    zip.write(bytes)
+                    zip.closeEntry()
+                    written++
+                }
+            }
+        } catch (error: IOException) {
+            throw error
+        } catch (error: Exception) {
+            throw IOException("Não foi possível criar o arquivo ZIP do projeto.", error)
+        }
+        return written
     }
 
     /**
