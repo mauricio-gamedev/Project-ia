@@ -389,7 +389,7 @@ object AndroidProjectScaffold {
 
     private fun manifestTemplate(name: String, activityName: String, preservedPermissions: List<String>): String {
         val internetPermission = """<uses-permission android:name="android.permission.INTERNET" />"""
-        val permissions = (preservedPermissions + internetPermission).distinct().joinToString("\\n    ")
+        val permissions = (preservedPermissions + internetPermission).distinct().joinToString("\n    ")
         return """
             <?xml version="1.0" encoding="utf-8"?>
             <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -409,7 +409,7 @@ object AndroidProjectScaffold {
                     </activity>
                 </application>
             </manifest>
-        """.trimIndent() + "\\n"
+        """.trimIndent() + "\n"
     }
 
     private fun defaultLauncherTemplate(name: String, description: String): String {
@@ -477,15 +477,15 @@ object AndroidProjectScaffold {
     """.trimIndent() + "\n"
 
     private fun escapeString(value: String): String = value
-        .replace("\\", "\\\\")
-        .replace("\"", "\\"")
-        .replace("\$", "\\\$")
-        .replace("\r", " ")
-        .replace("\n", " ")
+        .replace('\\', ' ')
+        .replace('"', ' ')
+        .replace('$', ' ')
+        .replace('\r', ' ')
+        .replace('\n', ' ')
 
     private fun escapeXml(value: String): String = value
         .replace("&", "&amp;")
-        .replace("\"", "&quot;")
+        .replace('"', "&quot;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
 }
