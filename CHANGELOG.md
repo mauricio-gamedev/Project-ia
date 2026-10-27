@@ -12,6 +12,8 @@
 - Requested provider JSON-object response mode for generation and added an HTTP 400 compatibility retry for OpenAI-style endpoints that reject the optional parameter.
 - Improved malformed-manifest diagnostics to distinguish incomplete output from likely unescaped quotes or line breaks.
 - Increased the project-description limit from 1,000 to 4,000 characters and added a visible counter to prevent avoidable validation failures.
+- Replaced folder-tree export with a ZIP archive saved through Android's CreateDocument flow, avoiding the need to grant access to a whole directory.
+- Added verified ZIP-writing tests for archive contents and detection of staged-file tampering.
 - Added regression tests for staging, unsafe paths, collisions, secret files, size limits, and profile requirements.
 
 ### Status
