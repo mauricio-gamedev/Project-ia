@@ -543,6 +543,108 @@ fun ProjectFactoryScreen(container: AppContainer) {
             color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        if (profile == ProjectProfile.ANDROID_APP) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Compilação de APK na nuvem", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "O Android do celular não inclui JDK + Android SDK + Gradle para compilar qualquer projeto localmente. O Núcleo pode enviar o fonte para um repositório GitHub PRIVADO seu e compilar no GitHub Actions; o APK de depuração volta para o celular.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = buildRepoOwner,
+                        onValueChange = { buildRepoOwner = it },
+                        label = { Text("Usuário/organização do GitHub") },
+                        placeholder = { Text("ex.: mauricio-gamedev") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = buildRepoName,
+                        onValueChange = { buildRepoName = it.trim().replace(" ", "-").take(100) },
+                        label = { Text("Repositório privado dedicado ao build") },
+                        placeholder = { Text("ex.: nucleo-android-builds") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = githubBuildToken,
+                        onValueChange = { githubBuildToken = it.take(512) },
+                        label = { Text("Token pessoal fine-grained") },
+                        placeholder = { Text(if (githubBuildTokenSaved) "Token salvo com criptografia — deixe vazio para manter" else "Cole o token com acesso só ao repositório privado") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        if (githubBuildTokenSaved) "Token de build salvo no Android Keystore." else "Nenhum token salvo. Ele nunca será enviado ao modelo de IA.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "Crie antes um repositório privado e inicialize-o com README. Dê ao token somente as permissões necessárias nesse repositório: Contents, Actions e Workflows em leitura/gravação. O Núcleo instalará um workflow fixo; não enviaremos a chave da OpenRouter para o build.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = {
+                            val token = githubBuildToken.trim().ifBlank {
+                                container.secretStore.readApiKey(GITHUB_BUILD_TOKEN_ID).orEmpty()
+                            }
+                            if (buildRepoOwner.isBlank() || buildRepoName.isBlank()) {
+                                buildStatus = "Preencha o proprietário e o nome do repositório privado."
+                            } else if (token.isBlank()) {
+                                buildStatus = "Cole o token do GitHub antes de verificar o repositório."
+                            } else if (!verifyingBuildTarget) {
+                                verifyingBuildTarget = true
+                                buildStatus = "Verificando acesso ao repositório privado…"
+                                val owner = buildRepoOwner.trim()
+                                val repository = buildRepoName.trim()
+                                scope.launch {
+                                    try {
+                                        val target = GitHubAndroidBuildAdapter(context)
+                                            .verifyRepository(owner, repository, token)
+                                        container.secretStore.saveApiKey(GITHUB_BUILD_TOKEN_ID, token)
+                                        buildPreferences.edit()
+                                            .putString("owner", owner)
+                                            .putString("repository", repository)
+                                            .apply()
+                                        buildRepoOwner = owner
+                                        buildRepoName = repository
+                                        githubBuildToken = ""
+                                        githubBuildTokenSaved = true
+                                        buildStatus = "Repositório privado confirmado: ${target.owner}/${target.name}. A conexão foi salva com segurança."
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Exception) {
+                                        buildStatus = error.message ?: "Não foi possível verificar o repositório GitHub."
+                                    } finally {
+                                        verifyingBuildTarget = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !verifyingBuildTarget && !buildingApk,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (verifyingBuildTarget) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                        else Text("Verificar e salvar repositório privado")
+                    }
+                    if (buildStatus.isNotBlank()) {
+                        Text(
+                            buildStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
+                                buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
+                                buildStatus.startsWith("Falha")) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                }
+            }
+        }
+
         stagedProject?.let { staged ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -552,6 +654,110 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (staged.profile == ProjectProfile.ANDROID_APP) {
+                        HorizontalDivider()
+                        Text("Gerar APK instalável", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Checkbox(
+                                checked = buildConsent,
+                                onCheckedChange = { buildConsent = it },
+                                enabled = !buildingApk && !exporting,
+                            )
+                            Text(
+                                "Autorizo enviar este projeto ao repositório GitHub privado informado e executar os scripts Gradle do projeto no runner do GitHub Actions. Revise o fonte primeiro; scripts Gradle podem executar código durante a compilação.",
+                                modifier = Modifier.padding(top = 10.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val token = githubBuildToken.trim().ifBlank {
+                                    container.secretStore.readApiKey(GITHUB_BUILD_TOKEN_ID).orEmpty()
+                                }
+                                when {
+                                    !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
+                                    buildRepoOwner.isBlank() || buildRepoName.isBlank() || token.isBlank() ->
+                                        buildStatus = "Configure e verifique o repositório privado e o token do GitHub antes de compilar."
+                                    buildingApk || verifyingBuildTarget -> Unit
+                                    else -> {
+                                        buildingApk = true
+                                        builtApk = null
+                                        buildStatus = "Preparando build remoto…"
+                                        val owner = buildRepoOwner.trim()
+                                        val repository = buildRepoName.trim()
+                                        scope.launch {
+                                            try {
+                                                val artifact = GitHubAndroidBuildAdapter(context).build(
+                                                    stagedProject = staged,
+                                                    stagingRoot = stagingRoot,
+                                                    owner = owner,
+                                                    repository = repository,
+                                                    token = token,
+                                                    onStatus = { update -> scope.launch { buildStatus = update } },
+                                                )
+                                                builtApk = artifact
+                                                buildStatus = "APK compilado e verificado · SHA-256 ${artifact.sha256}."
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (error: Exception) {
+                                                buildStatus = error.message ?: "Não foi possível compilar o APK."
+                                            } finally {
+                                                buildingApk = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (buildingApk) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                            else Text("Compilar APK na nuvem")
+                        }
+                        if (buildingApk) {
+                            androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        builtApk?.let { artifact ->
+                            Text(
+                                "O build remoto terminou. Este é um APK de depuração, não uma versão de publicação para a Play Store.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                            Text(
+                                "SHA-256: ${artifact.sha256}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    apkSaveLauncher.launch(safeApkFilename(staged.name))
+                                },
+                                enabled = !buildingApk,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Salvar APK no dispositivo") }
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(artifact.runUrl)))
+                                    } catch (_: Exception) {
+                                        buildStatus = "Não foi possível abrir o log do GitHub Actions."
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Abrir log do build") }
+                        }
+                        if (buildStatus.isNotBlank()) {
+                            Text(
+                                buildStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
+                                    buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
+                                    buildStatus.startsWith("Falha")) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.secondary,
+                            )
+                        }
+                    }
                     staged.files.take(visibleFileLimit).forEach { file ->
                         OutlinedButton(
                             onClick = {
