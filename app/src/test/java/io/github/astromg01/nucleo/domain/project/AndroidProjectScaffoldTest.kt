@@ -110,6 +110,15 @@ class AndroidProjectScaffoldTest {
                 GeneratedProjectFile("app/src/main/AndroidManifest.xml", """
                     <manifest xmlns:android="http://schemas.android.com/apk/res/android">
                       <uses-permission android:name="android.permission.CAMERA" />
+                      <application android:label="Permissions">
+                        <activity android:name="example.MainActivity">
+                          <intent-filter>
+                            <action android:name="android.intent.action.MAIN" />
+                            <category android:name="android.intent.category.LAUNCHER" />
+                          </intent-filter>
+                        </activity>
+                        <service android:name=".SyncService" />
+                      </application>
                     </manifest>
                 """.trimIndent()),
                 GeneratedProjectFile("app/src/main/java/example/MainActivity.kt", """
@@ -125,6 +134,82 @@ class AndroidProjectScaffoldTest {
         assertTrue(manifest.contains("android.permission.INTERNET"))
         assertTrue(manifest.contains("android.intent.action.MAIN"))
         assertTrue(manifest.contains("android.intent.category.LAUNCHER"))
+        assertTrue(manifest.contains("android:exported=\"true\""))
+        assertTrue(manifest.contains("android:name=\".SyncService\""))
+    }
+
+    @Test
+    fun acceptsValidGroovyGradleFilesWithoutAddingCompetingKotlinDslFiles() {
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Groovy Project",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile("settings.gradle", """
+                        pluginManagement {
+                            repositories {
+                                google()
+                                mavenCentral()
+                                gradlePluginPortal()
+                            }
+                        }
+                        rootProject.name = 'Groovy Project'
+                        include ':app'
+                    """.trimIndent()),
+                    GeneratedProjectFile("build.gradle", """
+                        plugins {
+                            id 'com.android.application' version '8.13.2' apply false
+                            id 'org.jetbrains.kotlin.android' version '2.3.21' apply false
+                            id 'org.jetbrains.kotlin.plugin.compose' version '2.3.21' apply false
+                        }
+                    """.trimIndent()),
+                    GeneratedProjectFile("app/build.gradle", """
+                        plugins {
+                            id 'com.android.application'
+                            id 'org.jetbrains.kotlin.android'
+                            id 'org.jetbrains.kotlin.plugin.compose'
+                        }
+                        android {
+                            namespace 'com.example.groovy'
+                            compileSdk 36
+                            defaultConfig {
+                                applicationId 'com.example.groovy'
+                                minSdk 26
+                                targetSdk 36
+                            }
+                        }
+                        dependencies {
+                            implementation 'androidx.core:core-ktx:1.17.0'
+                        }
+                    """.trimIndent()),
+                    GeneratedProjectFile("app/src/main/AndroidManifest.xml", """
+                        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                          <application android:label="Groovy" android:allowBackup="false">
+                            <activity android:name="com.example.groovy.MainActivity" android:exported="true">
+                              <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+                                <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                            </activity>
+                          </application>
+                        </manifest>
+                    """.trimIndent()),
+                    GeneratedProjectFile(
+                        "app/src/main/java/com/example/groovy/MainActivity.kt",
+                        "package com.example.groovy\nclass MainActivity : ComponentActivity() {}",
+                    ),
+                ),
+            ),
+        )
+        val paths = result.draft.files.map { it.path }.toSet()
+
+        assertTrue(paths.contains("settings.gradle"))
+        assertTrue(paths.contains("build.gradle"))
+        assertTrue(paths.contains("app/build.gradle"))
+        assertFalse(paths.contains("settings.gradle.kts"))
+        assertFalse(paths.contains("build.gradle.kts"))
+        assertFalse(paths.contains("app/build.gradle.kts"))
+        assertFalse(result.defaultLauncherAdded)
     }
 
     @Test
