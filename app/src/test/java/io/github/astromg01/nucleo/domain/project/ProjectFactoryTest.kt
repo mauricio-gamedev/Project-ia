@@ -1,6 +1,7 @@
 package io.github.astromg01.nucleo.domain.project
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -184,6 +185,59 @@ class ProjectFactoryTest {
             )
         }
         assertTrue(pythonError.message!!.contains("pyproject.toml"))
+    }
+
+    @Test
+    fun `reads a bounded preview and rejects changed staged content`() {
+        withTempDirectory { temp ->
+            val staged = factory.stage(
+                ProjectDraft(
+                    name = "Preview",
+                    profile = ProjectProfile.GENERIC,
+                    files = listOf(GeneratedProjectFile("README.md", "hello world")),
+                ),
+                File(temp, "staging"),
+            )
+            val evidence = staged.files.single()
+            val preview = factory.readPreview(staged, evidence, maxChars = 5)
+
+            assertEquals("hello", preview.content)
+            assertTrue(preview.truncated)
+            assertEquals(evidence.sizeBytes, preview.sizeBytes)
+            assertEquals(evidence.sha256, preview.sha256)
+
+            File(staged.directory, evidence.relativePath).writeText("changed")
+            assertThrows(IOException::class.java) {
+                factory.readPreview(staged, evidence)
+            }
+        }
+    }
+
+    @Test
+    fun `discards only the authorized staging child`() {
+        withTempDirectory { temp ->
+            val stagingRoot = File(temp, "staging")
+            val staged = factory.stage(
+                ProjectDraft(
+                    name = "Discard",
+                    profile = ProjectProfile.GENERIC,
+                    files = listOf(GeneratedProjectFile("README.md", "# Temporary")),
+                ),
+                stagingRoot,
+            )
+
+            factory.discard(staged, stagingRoot)
+            assertFalse(staged.directory.exists())
+
+            val outside = File(temp, "outside").apply { mkdirs() }
+            val protected = File(outside, "keep.txt").apply { writeText("do not delete") }
+            val forged = staged.copy(id = outside.name, directory = outside)
+            assertThrows(IOException::class.java) {
+                factory.discard(forged, stagingRoot)
+            }
+            assertTrue(protected.exists())
+            assertEquals("do not delete", protected.readText())
+        }
     }
 
     private fun draftOf(path: String, content: String = "text") = ProjectDraft(
