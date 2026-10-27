@@ -377,7 +377,7 @@ object AndroidProjectScaffold {
     private fun escapeString(value: String): String = value
         .replace("\\", "\\\\")
         .replace("\"", "\\"")
-        .replace("$", "\\$")
+        .replace("\$", "\\\$")
         .replace("\r", " ")
         .replace("\n", " ")
 
