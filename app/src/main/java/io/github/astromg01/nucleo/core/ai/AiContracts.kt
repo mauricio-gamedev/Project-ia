@@ -48,8 +48,22 @@ class LocalModelUnavailableException : IllegalStateException(
 class ProviderConfigurationException(message: String) : IllegalStateException(message)
 
 /** A provider status error with a deliberately sanitized user-facing message. */
-class ProviderHttpException(val statusCode: Int) : IllegalStateException(
+class ProviderHttpException(
+    val statusCode: Int,
+    /** Optional HTTP Retry-After value, capped by the adapter before reaching the router. */
+    val retryAfterSeconds: Long? = null,
+) : IllegalStateException(
     "O provedor respondeu HTTP $statusCode. Confira endpoint, modelo, chave e cota do serviço.",
 ) {
     val isRetryable: Boolean = statusCode == 408 || statusCode == 429 || statusCode in 500..599
 }
+
+data class ProviderRouteFailure(
+    val providerName: String,
+    val reason: String,
+)
+
+class ModelRoutingException(
+    val failures: List<ProviderRouteFailure>,
+    message: String,
+) : IllegalStateException(message)
