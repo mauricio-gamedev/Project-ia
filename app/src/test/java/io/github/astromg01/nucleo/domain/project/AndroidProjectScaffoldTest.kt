@@ -30,6 +30,10 @@ class AndroidProjectScaffoldTest {
         assertTrue(files["app/build.gradle.kts"]!!.content.contains("id(\"com.android.application\")"))
         assertTrue(files["app/src/main/AndroidManifest.xml"]!!.content.contains("io.github.nucleo.generated.NucleoLauncherActivity"))
         assertTrue(files["app/src/main/AndroidManifest.xml"]!!.content.contains("android.intent.category.LAUNCHER"))
+        assertFalse(files["settings.gradle.kts"]!!.content.contains("\\n"))
+        assertFalse(files["build.gradle.kts"]!!.content.contains("\\n"))
+        assertFalse(files["app/build.gradle.kts"]!!.content.contains("\\n"))
+        assertFalse(files["app/src/main/AndroidManifest.xml"]!!.content.contains("\\n"))
         ProjectFactory().validate(result.draft)
     }
 
