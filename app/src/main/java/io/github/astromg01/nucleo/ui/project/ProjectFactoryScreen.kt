@@ -215,11 +215,14 @@ fun ProjectFactoryScreen(container: AppContainer) {
         OutlinedTextField(
             value = description,
             onValueChange = {
-                description = it
+                description = it.take(ProjectFactory.MAX_DESCRIPTION_CHARS)
                 discardCurrentDraft()
             },
             label = { Text("O que a IA deve criar?") },
             placeholder = { Text("Ex.: um app de lista de tarefas com salvamento local, pesquisa e tema escuro…") },
+            supportingText = {
+                Text("${description.length}/${ProjectFactory.MAX_DESCRIPTION_CHARS} caracteres")
+            },
             modifier = Modifier.fillMaxWidth(),
             minLines = 5,
             maxLines = 10,
