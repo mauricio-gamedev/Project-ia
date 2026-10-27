@@ -6,12 +6,22 @@ data class AiMessage(
     val content: String,
 )
 
+enum class AiTaskType {
+    CHAT,
+    PLANNING,
+    CODE_GENERATION,
+    CODE_REVIEW,
+    CODE_REPAIR,
+}
+
 data class AiRequest(
     val messages: List<AiMessage>,
     val temperature: Double = 0.2,
     val maxOutputTokens: Int? = null,
     /** Ask compatible providers for a syntactically valid JSON object when supported. */
     val jsonObjectMode: Boolean = false,
+    /** Used to pick an appropriate route and preserve task context during failover. */
+    val taskType: AiTaskType = AiTaskType.CHAT,
 )
 
 data class AiResponse(
