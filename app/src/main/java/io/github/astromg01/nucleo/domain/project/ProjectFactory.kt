@@ -2,6 +2,8 @@ package io.github.astromg01.nucleo.domain.project
 
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -35,6 +37,13 @@ data class StagedFileEvidence(
     val sha256: String,
 )
 
+data class StagedFilePreview(
+    val content: String,
+    val truncated: Boolean,
+    val sizeBytes: Long,
+    val sha256: String,
+)
+
 enum class ProjectStageStatus {
     REVIEW_REQUIRED,
 }
@@ -64,6 +73,142 @@ class ProjectDraftValidationException(
 class ProjectFactory {
     fun validate(draft: ProjectDraft) {
         prepareFiles(draft)
+    }
+
+    /**
+     * Reads a bounded preview only when the staged file still matches its recorded size and hash.
+     * The preview never executes or modifies generated content.
+     */
+    @Throws(IOException::class)
+    fun readPreview(
+        stagedProject: StagedProject,
+        evidence: StagedFileEvidence,
+        maxChars: Int = MAX_PREVIEW_CHARS,
+    ): StagedFilePreview {
+        require(maxChars in 1..MAX_PREVIEW_CHARS) {
+            "O limite de prévia precisa estar entre 1 e $MAX_PREVIEW_CHARS caracteres."
+        }
+
+        val stagePath = stagedProject.directory.toPath().toAbsolutePath().normalize()
+        if (Files.isSymbolicLink(stagePath) ||
+            !Files.isDirectory(stagePath, LinkOption.NOFOLLOW_LINKS)
+        ) {
+            throw IOException("A pasta temporária não existe ou não é segura.")
+        }
+        val realStagePath = try {
+            stagePath.toRealPath()
+        } catch (error: Exception) {
+            throw IOException("Não foi possível verificar a pasta temporária.", error)
+        }
+
+        val segments = evidence.relativePath.split('/')
+        if (segments.isEmpty() || segments.any { it.isBlank() || it == "." || it == ".." || '\\' in it }) {
+            throw IOException("O caminho da prévia não é um caminho relativo seguro.")
+        }
+
+        var candidate = stagePath
+        for (segment in segments) {
+            candidate = candidate.resolve(segment)
+            if (Files.isSymbolicLink(candidate)) {
+                throw IOException("A prévia recusou um arquivo ou diretório que é link simbólico.")
+            }
+        }
+        candidate = candidate.normalize()
+        if (candidate == stagePath || !candidate.startsWith(stagePath)) {
+            throw IOException("O caminho da prévia saiu da pasta temporária.")
+        }
+
+        val filePath = try {
+            candidate.toRealPath()
+        } catch (error: Exception) {
+            throw IOException("O arquivo temporário não existe ou não pode ser lido.", error)
+        }
+        if (filePath == realStagePath ||
+            !filePath.startsWith(realStagePath) ||
+            !Files.isRegularFile(filePath, LinkOption.NOFOLLOW_LINKS)
+        ) {
+            throw IOException("A prévia não aponta para um arquivo regular dentro do staging.")
+        }
+
+        val actualSize = try {
+            Files.size(filePath)
+        } catch (error: Exception) {
+            throw IOException("Não foi possível verificar o tamanho do arquivo.", error)
+        }
+        if (actualSize != evidence.sizeBytes || actualSize > MAX_FILE_BYTES) {
+            throw IOException("O tamanho do arquivo temporário mudou após a validação.")
+        }
+        val bytes = try {
+            Files.readAllBytes(filePath)
+        } catch (error: Exception) {
+            throw IOException("Não foi possível ler o arquivo temporário.", error)
+        }
+        if (bytes.size.toLong() != evidence.sizeBytes) {
+            throw IOException("O arquivo temporário mudou durante a leitura.")
+        }
+
+        val digest = sha256(bytes)
+        if (digest != evidence.sha256) {
+            throw IOException("A integridade do arquivo mudou após a validação; a prévia foi bloqueada.")
+        }
+        val decoded = try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes))
+                .toString()
+        } catch (error: Exception) {
+            throw IOException("O conteúdo não é texto UTF-8 válido.", error)
+        }
+
+        return StagedFilePreview(
+            content = decoded.take(maxChars),
+            truncated = decoded.length > maxChars,
+            sizeBytes = actualSize,
+            sha256 = digest,
+        )
+    }
+
+    /**
+     * Deletes only the selected staging directory when it is a direct child of stagingRoot.
+     * This deliberately refuses arbitrary paths so generated content cannot select deletions.
+     */
+    @Throws(IOException::class)
+    fun discard(stagedProject: StagedProject, stagingRoot: File) {
+        val requestedRoot = stagingRoot.toPath().toAbsolutePath().normalize()
+        if (Files.isSymbolicLink(requestedRoot)) {
+            throw IOException("A raiz do staging não pode ser um link simbólico.")
+        }
+        val rootPath = try {
+            requestedRoot.toFile().canonicalFile.toPath()
+        } catch (error: Exception) {
+            throw IOException("Não foi possível verificar a raiz do staging.", error)
+        }
+
+        val requestedStage = stagedProject.directory.toPath().toAbsolutePath().normalize()
+        if (Files.isSymbolicLink(requestedStage)) {
+            throw IOException("A pasta temporária não pode ser um link simbólico.")
+        }
+        if (requestedStage.fileName?.toString() != stagedProject.id) {
+            throw IOException("O identificador do rascunho não corresponde à pasta temporária.")
+        }
+        val stagePath = try {
+            requestedStage.toFile().canonicalFile.toPath()
+        } catch (error: Exception) {
+            throw IOException("Não foi possível verificar a pasta temporária.", error)
+        }
+        if (stagePath.parent != rootPath || !stagePath.startsWith(rootPath)) {
+            throw IOException("A limpeza foi bloqueada porque o rascunho não é filho direto da raiz autorizada.")
+        }
+        if (!Files.exists(stagePath, LinkOption.NOFOLLOW_LINKS)) return
+        if (Files.isSymbolicLink(stagePath)) {
+            throw IOException("A limpeza recusou uma pasta temporária que é link simbólico.")
+        }
+        try {
+            deleteTree(stagePath)
+        } catch (error: Exception) {
+            throw IOException("Não foi possível remover todos os arquivos temporários.", error)
+        }
     }
 
     @Throws(IOException::class, ProjectDraftValidationException::class)
@@ -286,6 +431,7 @@ class ProjectFactory {
         const val MAX_NAME_CHARS = 80
         const val MAX_DESCRIPTION_CHARS = 1_000
         const val MAX_PATH_CHARS = 240
+        const val MAX_PREVIEW_CHARS = 16_000
         private const val MAX_REPORTED_PROBLEMS = 20
         private const val MAX_SLUG_CHARS = 32
         private val WINDOWS_DRIVE = Regex("^[A-Za-z]:.*")
