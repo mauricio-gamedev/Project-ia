@@ -637,7 +637,7 @@ private fun ChatScreen(
     Column(Modifier.fillMaxSize().imePadding()) {
         Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
             Text(
-                "Chat integrado ao histórico, às memórias e ao GitHub autorizado. O conteúdo do repositório só é enviado à IA quando você ativa essa opção.",
+                "Chat com histórico, resumo e memória local. Para guardar algo, diga “Lembre que…”. O código do GitHub só é enviado à IA quando você ativa explicitamente essa opção.",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
