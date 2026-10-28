@@ -26,6 +26,17 @@ import java.util.zip.ZipInputStream
 
 private val SHA256_DIGEST_PATTERN = Regex("[0-9a-fA-F]{64}")
 private const val MAX_DIAGNOSTIC_CHARS = 8_000
+private const val MAX_DIAGNOSTIC_LINES = 90
+
+/** Decode plain-text fallback logs without accidentally surfacing binary ZIP data in the UI or AI prompt. */
+internal fun readableRawBuildLog(bytes: ByteArray, maxChars: Int): String? {
+    if (bytes.isEmpty() || maxChars <= 0) return null
+    val decoded = bytes.toString(Charsets.UTF_8)
+    if (decoded.isBlank()) return null
+    val readableCount = decoded.count { it == '\n' || it == '\r' || it == '\t' || !it.isISOControl() }
+    if (readableCount.toDouble() / decoded.length < 0.90) return null
+    return decoded.trim().takeLast(maxChars).takeIf { it.isNotBlank() }
+}
 
 internal fun verifyPublishedApkChecksum(expectedChecksum: String?, actualChecksum: String) {
     val expected = expectedChecksum?.trim()?.takeIf { SHA256_DIGEST_PATTERN.matches(it) }
@@ -109,7 +120,7 @@ internal fun sanitizeBuildDiagnostics(raw: String): String {
     val lines = safe.lineSequence().toList()
     var selected = lines.filter { important.containsMatchIn(it) }
     if (selected.isEmpty()) selected = lines.takeLast(40)
-    safe = selected.takeLast(90).joinToString("\n")
+    safe = selected.takeLast(MAX_DIAGNOSTIC_LINES).joinToString("\n")
     return safe.takeLast(MAX_DIAGNOSTIC_CHARS)
 }
 
@@ -434,7 +445,8 @@ class GitHubAndroidBuildAdapter(
                 bytes[0] == 'P'.code.toByte() &&
                 bytes[1] == 'K'.code.toByte()
             if (!isZipArchive) {
-                return bytes.toString(Charsets.UTF_8).takeLast(MAX_RAW_LOG_CHARS)
+                return readableRawBuildLog(bytes, MAX_RAW_LOG_CHARS)
+                    ?: "O GitHub retornou um log em formato de texto ilegível para o job $jobId."
             }
 
             val combined = StringBuilder()
@@ -457,10 +469,14 @@ class GitHubAndroidBuildAdapter(
                     }
                 }
             } catch (_: java.util.zip.ZipException) {
-                return "O GitHub retornou um arquivo de log ZIP inválido para o job $jobId."
+                return readableRawBuildLog(bytes, MAX_RAW_LOG_CHARS)
+                    ?: "O GitHub retornou um arquivo de log ZIP inválido para o job $jobId."
             }
             if (!foundEntry) {
-                return "O GitHub retornou um arquivo de log ZIP sem entradas para o job $jobId."
+                // A gateway can return plain text despite a ZIP-like header. Use the body only
+                // when it is mostly printable text; otherwise avoid showing binary bytes.
+                return readableRawBuildLog(bytes, MAX_RAW_LOG_CHARS)
+                    ?: "O GitHub retornou um arquivo de log ZIP sem entradas para o job $jobId."
             }
             // Build/compiler errors tend to be near the end; preserve the tail when limiting.
             return combined.toString().takeLast(MAX_RAW_LOG_CHARS)
@@ -715,7 +731,6 @@ class GitHubAndroidBuildAdapter(
         private const val MAX_BYTES_PER_LOG_ENTRY = 1_500_000
         private const val MAX_CHECKSUM_ENTRY_BYTES = 2_048
         private const val MAX_RAW_LOG_CHARS = 200_000
-        private const val MAX_DIAGNOSTIC_LINES = 90
         private const val MAX_DIAGNOSTIC_JOBS = 3
         private const val MAX_POLL_ATTEMPTS = 120
         private const val POLL_INTERVAL_MILLIS = 10_000L
