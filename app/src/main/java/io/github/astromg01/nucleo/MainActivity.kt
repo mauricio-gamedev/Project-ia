@@ -97,6 +97,7 @@ import io.github.astromg01.nucleo.data.settings.OpenRouterModelCatalog
 import io.github.astromg01.nucleo.ui.NucleoTheme
 import io.github.astromg01.nucleo.ui.lang.LangPlaygroundScreen
 import io.github.astromg01.nucleo.ui.project.ProjectFactoryScreen
+import io.github.astromg01.nucleo.ui.github.GitHubConnectorCard
 import kotlinx.coroutines.launch
 
 private data class TimelineEntry(
@@ -295,7 +296,7 @@ private fun NucleoShell(container: AppContainer) {
                 })
                 AppScreen.SETTINGS -> SettingsScreen(container)
                 AppScreen.LANG -> LangPlaygroundScreen()
-                AppScreen.FACTORY -> ProjectFactoryScreen(container)
+                AppScreen.FACTORY -> ProjectFactoryScreen(container, onOpenGitHubSettings = { screen = AppScreen.SETTINGS })
             }
         }
     }
@@ -1245,6 +1246,7 @@ private fun SettingsScreen(container: AppContainer) {
                     }
                 }
             }
+            item { GitHubConnectorCard(container) }
             item {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
