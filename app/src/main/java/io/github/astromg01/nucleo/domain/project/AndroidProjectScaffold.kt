@@ -244,7 +244,7 @@ object AndroidProjectScaffold {
             val packageMatch = if (lower.endsWith(".kt")) kotlinPackage.find(file.content) else javaPackage.find(file.content)
             val classMatch = if (lower.endsWith(".kt")) kotlinActivity.find(file.content) else javaActivity.find(file.content)
             if (packageMatch != null && classMatch != null) {
-                val qualifiedName = "\${packageMatch.groupValues[1]}.\${classMatch.groupValues[1]}"
+                val qualifiedName = "${packageMatch.groupValues[1]}.${classMatch.groupValues[1]}"
                 if (qualifiedName !in discovered) discovered += qualifiedName
             }
         }
