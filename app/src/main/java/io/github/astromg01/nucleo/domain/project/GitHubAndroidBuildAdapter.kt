@@ -77,8 +77,8 @@ internal fun sanitizeBuildDiagnostics(raw: String): String {
     val lines = safe.lineSequence().toList()
     var selected = lines.filter { important.containsMatchIn(it) }
     if (selected.isEmpty()) selected = lines.takeLast(40)
-    safe = selected.takeLast(MAX_DIAGNOSTIC_LINES).joinToString("\n")
-    return safe.take(MAX_DIAGNOSTIC_CHARS)
+    safe = selected.takeLast(90).joinToString("\n")
+    return safe.take(8_000)
 }
 
 /**
