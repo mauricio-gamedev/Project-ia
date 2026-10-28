@@ -14,7 +14,10 @@ import androidx.compose.ui.unit.sp
  * Lightweight, safe Markdown presentation for chat text. It deliberately renders content as text
  * instead of interpreting HTML or remote resources.
  */
-internal fun formatChatMarkdown(markdown: String): AnnotatedString {
+internal fun formatChatMarkdown(
+    markdown: String,
+    headingColor: Color = Color(0xFFC6B9FF),
+): AnnotatedString {
     val lines = markdown.split('\n')
     return buildAnnotatedString {
         var inCodeBlock = false
@@ -48,7 +51,7 @@ internal fun formatChatMarkdown(markdown: String): AnnotatedString {
                     SpanStyle(
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        color = Color(0xFFC6B9FF),
+                        color = headingColor,
                     ),
                 ) {
                     appendInlineMarkdown(line)
