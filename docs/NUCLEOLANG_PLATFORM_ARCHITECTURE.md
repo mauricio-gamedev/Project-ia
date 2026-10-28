@@ -1,52 +1,51 @@
-# NúcleoLang — arquitetura de linguagem e expansão de plataformas
+# NúcleoLang — Language and Platform Architecture
 
-Status: proposta técnica para a etapa alfa; não implica que compiladores ou integrações descritos já existam.
+**Status:** technical proposal for the alpha roadmap. Describing a compiler or integration here does not imply it has been implemented.
 
-## Objetivo
+## Goal
 
-A NúcleoLang não deve ter um catálogo fechado de tipos de projeto. O core define a linguagem; bibliotecas, pacotes, capacidades autorizadas e backends extensíveis conectam a linguagem a novos domínios e plataformas. Não é possível prometer software arbitrário automaticamente: cada alvo depende de uma toolchain, SDK, API ou runtime real, compatível e testável.
+NúcleoLang should not have a closed catalogue of project types. The core defines the language; libraries, authorized capabilities, and extensible backends connect it to new domains and platforms. Arbitrary software generation cannot be promised: every target depends on a real, compatible, testable toolchain, SDK, API, or runtime.
 
-## Camadas propostas
+## Proposed layers
 
-1. **Especificação normativa** — gramática, regras de escopo, valores, erros, módulos e compatibilidade versionada. O comportamento documentado torna-se contrato coberto por testes.
-2. **Front-end** — lexer, parser, diagnósticos, AST e análise semântica. Não deve importar APIs Android nem chamar modelos diretamente.
-3. **Sistema de tipos** — inferência/checagem estática progressiva, com tipos explícitos quando úteis, genéricos e diagnóstico antes da execução. Até sua implementação, a versão atual é dinamicamente tipada.
-4. **Representação intermediária (IR)** — forma independente de destino, validada antes de executar ou compilar. Esta camada ainda não está implementada.
-5. **Runtime** — valores, coleções, funções, orçamento, cancelamento cooperativo e rastreamento de erros. O runtime não concede acesso ao sistema por padrão.
-6. **Biblioteca padrão** — coleções, texto, matemática, caminhos abstratos, JSON, data/hora e utilitários com contratos determinísticos.
-7. **Capacidades do host** — integração explicitamente injetada, granular e com permissões. Exemplo: `project.readText` limitado à pasta autorizada; não uma função genérica que execute qualquer comando.
-8. **Gerenciador de pacotes** — dependências versionadas, hashes, origem verificável, metadados de licença, lockfile e instalação reproduzível. Ainda não implementado.
-9. **Backends** — plugins selecionáveis de compilação/execução com contrato comum. Exemplos futuros: runtime interpretado, Android/JVM, WebAssembly e outros destinos quando houver toolchain suportada.
-10. **Project Factory** — gerador de templates e arquivos que chama o backend adequado, compila, inspeciona o artefato, executa testes possíveis e guarda logs/checkpoints. Ainda não implementado.
+1. **Normative specification:** grammar, scopes, values, errors, modules, and versioned compatibility. Documented behavior becomes a contract covered by tests.
+2. **Front end:** lexer, parser, diagnostics, AST, and semantic analysis. It should not depend on Android APIs or call AI models directly.
+3. **Type system:** gradual inference/checking, explicit types where useful, generics, and pre-execution diagnostics. The current alpha remains dynamically typed.
+4. **Intermediate representation (IR):** a target-independent representation validated before execution/compilation. Not implemented yet.
+5. **Runtime:** values, collections, functions, budgets, cooperative cancellation, and error tracing. The runtime does not grant system access by default.
+6. **Standard library:** collections, text, math, abstract paths, JSON, date/time, and deterministic utilities.
+7. **Host capabilities:** explicitly injected, granular integrations with permissions. For example, project.readText restricted to an authorized folder—not a generic function that can execute any command.
+8. **Package manager:** versioned dependencies, hashes, verifiable origins, license metadata, lockfile, and reproducible installation. Not implemented yet.
+9. **Backends:** selectable compilation/execution adapters with a common contract. Potential future targets include interpreted runtime, Android/JVM, WebAssembly, and other environments once supported toolchains exist.
+10. **Project Factory:** template/file generation that calls an appropriate backend, compiles, inspects artifacts, runs available tests, and records logs/checkpoints. Only a subset of project-generation and remote Android build workflows exists today.
 
-## Contrato futuro de backend
+## Future backend contract
 
-Um backend deverá declarar, no mínimo:
+A backend should declare at least:
+- backend identifier and version;
+- supported targets and architectures;
+- prerequisites and toolchain versions;
+- external dependencies and relevant licenses;
+- required capabilities (filesystem, network, subprocesses, SDKs);
+- expected input and produced artifacts;
+- executed commands, exit codes, and logs;
+- post-build checks and known limitations.
 
-- identificador e versão do backend;
-- destinos e arquiteturas suportados;
-- pré-requisitos e versões da toolchain;
-- dependências externas e licenças relevantes;
-- capacidades exigidas (arquivos, rede, subprocessos, SDK);
-- entrada esperada e artefatos gerados;
-- comandos executados, códigos de saída e logs;
-- verificações pós-build e limitações conhecidas.
+Backend selection must be explicit or recommended by the agent with a rationale. AI cannot report a successful build without recorded execution and target-specific artifact checks.
 
-A escolha do backend será explícita ou recomendada pelo agente com justificativa. A IA não pode reportar “build aprovado” sem uma execução real registrada com status zero e sem as verificações de artefato definidas pelo alvo.
+## Android apps and APKs
 
-## Aplicações Android e APKs
+A complete Android APK normally requires a compatible JDK, Gradle/Android Gradle Plugin, Android SDK/build-tools, and build dependencies. For on-device execution, Project Factory must assess target feasibility before claiming local support; storage, memory, build time, and toolchain availability may make local builds impractical. When no viable backend exists, the system must declare a blocked/unsupported state instead of simulating success. Remote builds require explicit consent and controlled project transfer.
 
-Um APK Android completo normalmente exige ferramentas Android compatíveis, como JDK, Gradle/Android Gradle Plugin, Android SDK e dependências de build. Na visão de execução pelo telefone, o Project Factory deve avaliar cada alvo antes de anunciar suporte nativo no aparelho: armazenamento, memória, tempo de compilação e disponibilidade das toolchains podem inviabilizar certos builds localmente. Quando não existir backend local viável, o sistema deve declarar o bloqueio; nunca simular que compilou. Uma futura opção de build remoto exigiria consentimento explícito e transmissão controlada do projeto.
+## Safe execution model
 
-## Modelo de execução seguro
+- NúcleoLang source cannot load arbitrary JVM classes or execute plugins from text.
+- Every capability declares a name, version, argument schema, permissions, and limits.
+- AI models can propose registered capability calls only. The runtime validates call name, types, arguments, budget, and permissions.
+- Writes are staged; the app produces a diff and requests approval before applying consequential changes.
+- Cancellation, memory/time limits, and checkpoints must be in place before long-running untrusted tasks are allowed.
+- Packages require verifiable provenance and license metadata; dependencies from unknown origins must not be downloaded and executed automatically.
 
-- Código NúcleoLang não pode carregar classes JVM ou executar plugins fornecidos por texto.
-- Cada capacidade tem nome, versão, esquema de argumentos, permissões e limites próprios.
-- Modelos de IA só podem propor chamadas registradas. O runtime valida nome, tipos, argumentos, orçamento e permissões antes da execução.
-- Operações de escrita são preparadas em staging; a aplicação produz diff e pede a aprovação configurada antes de aplicar alterações relevantes.
-- Execução cancelável, limites de memória/duração e checkpoints devem ser adicionados antes de tarefas não confiáveis de longa duração.
-- Pacotes precisam ter procedência e licenças verificáveis; não se deve baixar e executar dependência de origem desconhecida automaticamente.
+## Progress criteria
 
-## Critérios de progresso
-
-Um recurso conta como implementado apenas quando tiver código, documentação e testes executáveis. Um backend conta como suportado apenas quando build e smoke test forem validados no alvo declarado. Uma sugestão produzida por IA, um template criado ou um ZIP gerado não equivalem a um artefato compilado.
+A feature counts as implemented only when code, documentation, and executable tests exist. A backend counts as supported only when build and smoke tests pass on the declared target. An AI suggestion, generated template, or ZIP does not equal a compiled artifact.
