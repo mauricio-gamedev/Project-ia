@@ -57,6 +57,15 @@ interface MemoryDao {
     @Query("SELECT * FROM memories ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<MemoryEntity>
 
+    @Query("SELECT * FROM memories WHERE kind = 'chat_summary' LIMIT 1")
+    suspend fun chatSummary(): MemoryEntity?
+
+    @Query("SELECT * FROM memories WHERE kind IN ('chat_fact', 'chat_preference') ORDER BY updatedAt DESC LIMIT :limit")
+    suspend fun latestChatFacts(limit: Int): List<MemoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertChatMemory(memory: MemoryEntity)
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(memory: MemoryEntity)
 
@@ -74,6 +83,9 @@ interface ChatMessageDao {
 
     @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY createdAt DESC, rowid DESC LIMIT :limit")
     suspend fun latest(sessionId: String, limit: Int): List<ChatMessageEntity>
+
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId AND role IN ('user', 'assistant') ORDER BY createdAt DESC, rowid DESC LIMIT :limit")
+    suspend fun latestConversation(sessionId: String, limit: Int): List<ChatMessageEntity>
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(message: ChatMessageEntity)
