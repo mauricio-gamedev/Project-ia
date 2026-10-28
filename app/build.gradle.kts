@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.astromg01.nucleo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.6.0-alpha"
+        versionCode = 10
+        versionName = "0.7.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -35,6 +35,7 @@ android {
         if (stableSigningConfigured) {
             create("stable") {
                 storeFile = file(stableKeystorePath!!)
+                storeType = "PKCS12"
                 storePassword = stableStorePassword!!
                 keyAlias = stableKeyAlias!!
                 keyPassword = stableKeyPassword!!
