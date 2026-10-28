@@ -127,6 +127,7 @@ private fun NucleoShell(container: AppContainer) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var screen by remember { mutableStateOf(AppScreen.HOME) }
+    var chatSending by remember { mutableStateOf(false) }
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
     val memories by container.database.memoryDao().observeAll().collectAsState(initial = emptyList())
@@ -276,7 +277,12 @@ private fun NucleoShell(container: AppContainer) {
                     recentActivities = recentActivities,
                     onNavigate = { screen = it },
                 )
-                AppScreen.CHAT -> ChatScreen(container)
+                AppScreen.CHAT -> ChatScreen(
+                    container = container,
+                    requestScope = scope,
+                    sending = chatSending,
+                    onSendingChange = { chatSending = it },
+                )
                 AppScreen.PROJECTS -> ProjectsScreen(projects, onAdd = { folderPicker.launch(null) })
                 AppScreen.TASKS -> TasksScreen(tasks, projects, onCreate = { title, prompt, projectId, consentToShareCode ->
                     scope.launch {
@@ -448,7 +454,12 @@ private fun FeatureLine(text: String) {
 }
 
 @Composable
-private fun ChatScreen(container: AppContainer) {
+private fun ChatScreen(
+    container: AppContainer,
+    requestScope: kotlinx.coroutines.CoroutineScope,
+    sending: Boolean,
+    onSendingChange: (Boolean) -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val messages by container.database.chatMessageDao().observeSession("main").collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
@@ -459,7 +470,6 @@ private fun ChatScreen(container: AppContainer) {
         io.github.astromg01.nucleo.domain.github.GitHubOAuthSession(context, container.secretStore, githubConnector)
     }
     var draft by remember { mutableStateOf("") }
-    var sending by remember { mutableStateOf(false) }
     var creatorMode by remember { mutableStateOf(false) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
     var contentPlatform by remember { mutableStateOf("TikTok / Reels / Shorts") }
@@ -503,10 +513,10 @@ private fun ChatScreen(container: AppContainer) {
     fun submitMessage(messageText: String, includeRepository: Boolean) {
         val text = messageText.trim()
         if (text.isBlank() || sending) return
-        sending = true
+        onSendingChange(true)
         draft = ""
         contentActionStatus = ""
-        scope.launch {
+        requestScope.launch {
             try {
                 container.database.chatMessageDao().insert(ChatMessageEntity(role = "user", content = text))
                 val history = container.database.chatMessageDao().latestConversation("main", 24)
@@ -565,7 +575,7 @@ private fun ChatScreen(container: AppContainer) {
                     ChatMessageEntity(role = "assistant_error", content = error.message ?: "Não foi possível concluir a solicitação."),
                 )
             } finally {
-                sending = false
+                onSendingChange(false)
             }
         }
     }
