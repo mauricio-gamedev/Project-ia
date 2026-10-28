@@ -454,6 +454,9 @@ private fun ChatScreen(container: AppContainer) {
     val listState = rememberLazyListState()
     val githubPreferences = remember(context) { io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences(context) }
     val githubConnector = remember { io.github.astromg01.nucleo.domain.github.GitHubConnector() }
+    val githubSession = remember(context) {
+        io.github.astromg01.nucleo.domain.github.GitHubOAuthSession(context, container.secretStore, githubConnector)
+    }
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var creatorMode by remember { mutableStateOf(false) }
@@ -517,7 +520,7 @@ private fun ChatScreen(container: AppContainer) {
                 if (includeRepository) {
                     val selected = githubPreferences.selectedRepository()
                         ?: throw java.io.IOException("Nenhum repositório GitHub está selecionado. Configure em Configurações → Conector GitHub.")
-                    val token = container.secretStore.readApiKey(io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID)
+                    val token = githubSession.validAccessToken()
                         ?: throw java.io.IOException("A conexão GitHub foi desconectada. Reconecte em Configurações.")
                     repositoryContext = githubConnector.fetchRepositoryContext(token, selected).toPromptContext()
                 }
