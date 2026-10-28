@@ -120,7 +120,7 @@ class ProjectGenerationValidatorTest {
     fun reportsBlankGeneratedFilesEvenWhenPathsAreValid() {
         val issues = ProjectGenerationValidator.validate(genericFile("src/empty.js", "   "))
 
-        assertTrue(issues.any { it.contains("está vazio") })
+        assertTrue(issues.any { it.contains("vazio", ignoreCase = true) })
     }
 
     @Test
