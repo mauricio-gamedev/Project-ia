@@ -454,7 +454,7 @@ class GitHubConnectorPreferences(context: Context) {
     }
 }
 
-/** Keeps OAuth tokens encrypted and refreshes short-lived access tokens on demand. */
+/** Keeps OAuth tokens encrypted and resumes pending Device Flow after Android recreates the activity. */
 class GitHubOAuthSession(
     context: Context,
     private val secretStore: io.github.astromg01.nucleo.core.security.SecretStore,
@@ -473,6 +473,58 @@ class GitHubOAuthSession(
         }
         val expiry = tokens.expiresInSeconds?.let { System.currentTimeMillis() + it * 1_000L } ?: 0L
         preferences.edit().putLong(KEY_ACCESS_EXPIRY, expiry).apply()
+        clearPendingAuthorization()
+    }
+
+    fun hasStoredAccessToken(): Boolean =
+        !secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
+
+    /** Store the short-lived device code encrypted because Android may suspend/recreate the app
+     * while the user authorizes the OAuth app in the external browser. */
+    @Synchronized
+    fun savePendingAuthorization(authorization: GitHubDeviceAuthorization) {
+        secretStore.saveApiKey(PENDING_DEVICE_CODE_ID, authorization.deviceCode)
+        preferences.edit()
+            .putString(KEY_PENDING_USER_CODE, authorization.userCode)
+            .putString(KEY_PENDING_VERIFICATION_URI, authorization.verificationUri)
+            .putLong(KEY_PENDING_EXPIRES_AT, System.currentTimeMillis() + authorization.expiresInSeconds * 1_000L)
+            .putLong(KEY_PENDING_INTERVAL, authorization.intervalSeconds.coerceIn(5L, 60L))
+            .apply()
+    }
+
+    @Synchronized
+    fun pendingAuthorization(): GitHubDeviceAuthorization? {
+        val deviceCode = secretStore.readApiKey(PENDING_DEVICE_CODE_ID)
+        val expiresAt = preferences.getLong(KEY_PENDING_EXPIRES_AT, 0L)
+        val remainingMillis = expiresAt - System.currentTimeMillis()
+        if (deviceCode.isNullOrBlank() || remainingMillis <= 0L) {
+            clearPendingAuthorization()
+            return null
+        }
+        val userCode = preferences.getString(KEY_PENDING_USER_CODE, "").orEmpty()
+        val verificationUri = preferences.getString(KEY_PENDING_VERIFICATION_URI, "").orEmpty()
+        if (userCode.isBlank() || verificationUri.isBlank()) {
+            clearPendingAuthorization()
+            return null
+        }
+        return GitHubDeviceAuthorization(
+            deviceCode = deviceCode,
+            userCode = userCode,
+            verificationUri = verificationUri,
+            expiresInSeconds = (remainingMillis + 999L) / 1_000L,
+            intervalSeconds = preferences.getLong(KEY_PENDING_INTERVAL, 5L).coerceIn(5L, 60L),
+        )
+    }
+
+    @Synchronized
+    fun clearPendingAuthorization() {
+        secretStore.removeApiKey(PENDING_DEVICE_CODE_ID)
+        preferences.edit()
+            .remove(KEY_PENDING_USER_CODE)
+            .remove(KEY_PENDING_VERIFICATION_URI)
+            .remove(KEY_PENDING_EXPIRES_AT)
+            .remove(KEY_PENDING_INTERVAL)
+            .apply()
     }
 
     suspend fun validAccessToken(): String? {
@@ -491,16 +543,23 @@ class GitHubOAuthSession(
         }
     }
 
+    @Synchronized
     fun disconnect() {
         secretStore.removeApiKey(GITHUB_OAUTH_TOKEN_ID)
         secretStore.removeApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
+        clearPendingAuthorization()
         preferences.edit().remove(KEY_ACCESS_EXPIRY).apply()
         connectorPreferences.clearSelectedRepository()
     }
 
     companion object {
         const val GITHUB_OAUTH_REFRESH_TOKEN_ID = "github_oauth_refresh_token"
+        private const val PENDING_DEVICE_CODE_ID = "github_oauth_pending_device_code"
         private const val KEY_ACCESS_EXPIRY = "access_expires_at"
+        private const val KEY_PENDING_USER_CODE = "pending_user_code"
+        private const val KEY_PENDING_VERIFICATION_URI = "pending_verification_uri"
+        private const val KEY_PENDING_EXPIRES_AT = "pending_expires_at"
+        private const val KEY_PENDING_INTERVAL = "pending_interval"
         private const val REFRESH_EARLY_MILLIS = 2 * 60 * 1_000L
         private val refreshMutex = Mutex()
     }
