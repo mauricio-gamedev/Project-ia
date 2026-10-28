@@ -7,6 +7,21 @@ import org.junit.Test
 
 class AndroidProjectScaffoldTest {
     @Test
+    fun sanitizesAccentedProjectNameForAndroidIdentifiers() {
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Aplicação Ágil",
+                profile = ProjectProfile.ANDROID_APP,
+                files = emptyList(),
+            ),
+        )
+        val appBuild = result.draft.files.first { it.path == "app/build.gradle.kts" }.content
+
+        assertTrue(appBuild.contains("namespace = \"io.github.nucleo.generated.aplicaogil\""))
+        assertTrue(appBuild.contains("applicationId = \"io.github.nucleo.generated.aplicaogil\""))
+        assertFalse(appBuild.any { it.code > 0x7f })
+    }
+    @Test
     fun completesAnAndroidDraftWithMissingBuildFilesAndLauncher() {
         val result = AndroidProjectScaffold.complete(
             ProjectDraft(
