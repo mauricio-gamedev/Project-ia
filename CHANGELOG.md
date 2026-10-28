@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0-alpha — 2026-10-28
+
+### Creator workspace
+- Added a creation mode inside Chat with formats for video scripts, posts, live descriptions, content ideas, editorial calendars and visual prompts.
+- Added controls for topic, destination platform and tone, plus copy and Markdown export of the generated result.
+- Keeps created material in the persistent chat history; no new AI provider or additional token is required.
+
+### GitHub connector
+- Added OAuth Device Flow authorization, repository selection and encrypted token storage using Android Keystore-backed SecretStore.
+- Requests expiring OAuth tokens with `offline_access` and rotates refresh tokens automatically when an access token expires.
+- Shares the selected repository between Settings, chat context and Project Factory so repository owner/name/PAT are no longer re-entered for each build.
+- Adds an explicit chat checkbox before sending a limited repository tree/source context to the selected AI provider; the OAuth token is never included in model prompts.
+- Adds documentation for the OAuth registration prerequisite, broad OAuth scopes, privacy implications and recovery from revoked/expired access.
+
+### Signature continuity
+- Bumps the app to `0.7.0-alpha` / `versionCode 10` and explicitly configures the persistent keystore type as PKCS12.
+- A private stable-signing package is prepared outside the repository; the GitHub Actions secrets still must be configured before CI artifacts can use that certificate.
+- The first install using the new persistent certificate can require one final uninstall because old alpha builds used a temporary debug certificate. Preserve the new keystore for all later updates.
+
+### Validation
+- Added unit tests for selected-repository prompt context and length limiting, in addition to the existing checksum and identifier tests.
+- The OAuth callback flow cannot be completed until an OAuth App Client ID has been registered and Device Flow enabled by the account owner. An end-to-end login and repository build must still be tested on-device.
+
 ## 0.6.0-alpha — 2026-10-27
 
 ### Android Project Factory
