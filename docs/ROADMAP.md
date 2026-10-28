@@ -1,70 +1,64 @@
-# Roadmap orientado a resultados
+# Product Roadmap
 
-## M0 — Fundação (esta entrega)
+This roadmap distinguishes implemented capabilities from proposals. Check current source and CI results before treating any item as shipped.
 
-- [x] Projeto Android independente
-- [x] Interface inicial Compose
-- [x] Room com projetos, tarefas, mensagens e memórias
-- [x] Configuração remota genérica + chave cifrada
-- [x] Chat com memória persistente recente
-- [x] Tarefas duráveis para gerar plano técnico
-- [x] Snapshot textual de projeto limitado e consentido
-- [x] Testes unitários da validação de configuração
-- [x] Workflow Android CI
-- [ ] Build Android validado em runner real
-- [ ] Instalação e smoke test no Galaxy A06
+## M0 — Android foundation (implemented)
 
-## M1 — NúcleoLang autoral e validação
+- [x] Native Android app using Kotlin and Jetpack Compose.
+- [x] Room/SQLite persistence for projects, tasks, messages, and memories.
+- [x] Configurable remote AI provider and encrypted provider credentials.
+- [x] Durable planning tasks with bounded retries.
+- [x] Consent-controlled, bounded project snapshots.
+- [x] Unit-test and Android debug-build workflow in GitHub Actions.
+- [x] In-app NúcleoLang interpreter playground with execution budgets.
 
-- [x] Lexer e parser iniciais
-- [x] AST e interpretador Kotlin independente
-- [x] Aritmética, textos, booleanos, escopos, funções e recursão
-- [x] Orçamento de execução, limite de chamadas e sem efeitos de sistema embutidos
-- [x] Testes de regressão para recursos básicos e limites
-- [x] Proteção contra nesting sintático excessivo
-- [x] Playground da linguagem acessível na tela inicial do app
-- [ ] Cancelamento cooperativo integrado à UI
-- [ ] Build Android real e execução dos testes no CI
+## M1 — Model routing and chat continuity (implemented in alpha)
 
-## M2 — Validação e qualidade
+- [x] Primary provider and configurable alternative routes.
+- [x] Quota/network cooldowns and context handoff within configured model budgets.
+- [x] Persistent conversation history and a durable chat summary.
+- [x] Explicit local memory commands for supported facts/preferences; obvious credential-like values are rejected.
+- [x] Lexical relevance selection for chat memories; unrelated task-planning memories are excluded.
+- [x] Recovery for interrupted chat turns and app navigation.
+- [x] GitHub OAuth Device Flow with encrypted tokens and resumable pending authorization.
+- [x] Optional per-message repository source context and separate private build repository selection.
 
-- Build e testes no CI, correção de avisos/erros reais
-- Testes de persistência Room, reabertura de processo e recuperação de tarefa
-- Teste de ciclo de vida e permissão de pasta revogada
-- Teste de provedor com respostas de sucesso, HTTP 401/429/500, timeout e resposta inválida
-- Melhorar mensagens de erro sem expor segredo ou resposta sensível
+## M2 — Project Factory and remote builds (implemented alpha slice)
 
-## M3 — Project Factory e ferramentas de engenharia em modo somente leitura
+- [x] Consent before sending a project description to the remote model.
+- [x] JSON file-manifest parsing and path validation.
+- [x] Limits for file count, per-file size, total project size, and path length.
+- [x] Private staging, per-file SHA-256, content preview, and source export.
+- [x] Baseline validation for Android, web, Python, and generic profiles.
+- [x] Android scaffold completion for common missing Gradle/manifest/launcher pieces.
+- [x] Optional GitHub Actions build for supported Android scaffolds, with artifact/checksum verification.
+- [ ] Broader static diagnostics and dependency/license analysis for generated source.
+- [ ] More comprehensive remote-build failure, cancellation, and artifact-recovery tests.
 
-- Definir perfis de projeto e contrato de build adapter (ver `PROJECT_FACTORY_SPEC.md`)
-- Criar staging privado, relatório de diff e validação de caminhos antes de exportar
-- Implementar primeiro perfil Android e exportação de fonte; APK só após validar uma toolchain
+## M3 — Validation and robustness (next priorities)
 
-- Scanner de repositório incremental
-- Identificador de linguagens/build systems e símbolos básicos
-- Ferramenta de leitura de arquivo com limites e exclusões
-- Busca lexical contextual em índice local
-- Relatório de análise com path/linha e separação entre fatos e hipóteses
+- [ ] Broaden Room persistence, activity recreation, revoked-permission, and interrupted-request regression tests.
+- [ ] Test provider success, invalid responses, HTTP 401/403/429/500, and timeouts.
+- [ ] Improve per-route diagnostics and quota/cooldown visibility without exposing provider data.
+- [ ] Add safer controls for viewing, exporting, and deleting local chat memories/history.
+- [ ] Test OAuth revocation, expiry, refresh failure, and repository permission loss on-device.
 
-## M4 — Patch e validação controlados
+## M4 — Reviewable repository changes (planned)
 
-- Geração de patch em staging, sem gravar direto
-- Diff e aprovação explícita
-- Aplicação restrita à pasta autorizada
-- Testes e build sob limites definidos
-- Registro de artefatos, logs redigidos e rollback
+- [ ] Incremental repository scanner and local lexical index.
+- [ ] File/line evidence in project-analysis reports.
+- [ ] Patch generation in staging, reviewable diffs, explicit approval, and restricted application.
+- [ ] Bounded lint/test/build execution after a supported execution environment and isolation policy exist.
+- [ ] Audit logs, safe cancellation, rollback, and artifact provenance.
 
-## M5 — Inferência híbrida
+## M5 — Local inference and advanced automation (planned)
 
-- Benchmark de runtimes locais possíveis no Android ARM64
-- Importação e remoção de modelos, checagem de licença e armazenamento
-- Avaliação de RAM, latência, temperatura, consumo e compatibilidade real no A06
-- Política de roteamento local/remoto, fallback e visibilidade dos custos
+- [ ] Benchmark Android ARM64 inference runtimes on representative devices.
+- [ ] Evaluate model size, licenses, RAM, latency, temperature, battery impact, and compatibility.
+- [ ] Integrate a real local-inference adapter only after feasibility and safety testing.
+- [ ] Improve hybrid local/remote routing and cost visibility.
+- [ ] Add capability-registered tools and specialized agents only after permissions and execution have been validated.
 
-## M6 — DSL de engenharia e autonomia avançada
+## Explicit non-goals for the current alpha
 
-- Definir operações declarativas NúcleoLang para projeto, análise, patch, testes e relatórios
-- Integrar tools por capacidades registradas e validadas; não permitir chamadas implícitas
-- Checkpoints, revisão de diff e permissões por tarefa
-- Agentes especializados e roteamento híbrido depois da validação das ferramentas
-
+The app does not train its own model, provide unlimited/free inference, run arbitrary shell commands, execute AI-generated code in a sandbox, or compile APKs through NúcleoLang. LocalModelRuntime is an extension point; local inference is not yet available. Remote-build success does not guarantee runtime correctness or production readiness.

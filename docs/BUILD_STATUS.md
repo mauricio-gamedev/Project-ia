@@ -1,15 +1,25 @@
-# Estado da validação do build
+# Build and Validation Status
 
-Data da tentativa: 2026-10-21.
+## Source of truth
 
-## Resultado neste ambiente
+The Android CI workflow at the repository's Android CI workflow file is the authority for test and build results. Use the live [Actions runs](https://github.com/mauricio-gamedev/Project-ia/actions) and pull-request checks to verify the exact commit you intend to install or distribute.
 
-O comando `./gradlew --no-daemon assembleDebug testDebugUnitTest` não chegou à configuração ou compilação do projeto porque o ambiente não conseguiu resolver `services.gradle.org` para baixar Gradle 8.13. Não foi encontrado um Gradle pré-instalado nem um Android SDK local. Portanto, **não existe um APK gerado ou validado nesta sessão**.
+## What CI checks
 
-## Caminho de validação disponível
+The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact, calculates its checksum, and uploads the APK as a workflow artifact.
 
-O workflow `.github/workflows/android-ci.yml` executa testes unitários, compila o APK de depuração, verifica que o arquivo existe e não está vazio, calcula SHA-256 e publica o APK e o checksum como artefato do GitHub Actions. O workflow roda em `push`, `pull_request` e `workflow_dispatch`, em um runner Linux com acesso às dependências.
+Expected local output after a successful build:
 
-Artefato esperado: `app/build/outputs/apk/debug/app-debug.apk`. O `applicationId` de depuração contém o sufixo `.debug`.
+    app/build/outputs/apk/debug/app-debug.apk
 
-Um build bem-sucedido no CI ainda não substitui um teste de instalação e abertura no Galaxy A06.
+The app package ID is io.github.astromg01.nucleo. The current development version is 0.7.1-alpha with versionCode 11.
+
+## Reference validation
+
+The 0.7.1-alpha code path has passed the GitHub Actions unit-test/build job, APK verification, checksum generation, and artifact upload. See the Actions history for the exact commit and signing summary. Documentation commits may trigger additional CI runs; prefer the newest successful run matching the current branch or pull-request head over a historical result.
+
+## What a green build means
+
+A successful CI run demonstrates that the tests and configured build/artifact checks passed on the runner. It does not prove every UI flow has been smoke-tested on every Android device, that generated projects are correct, or that the app is production-ready.
+
+Before distributing a build, install the exact APK on a device, verify the signing certificate is compatible with the installed app, open the app, and test the changed user flows.

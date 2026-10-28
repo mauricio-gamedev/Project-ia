@@ -1,55 +1,55 @@
-# Arquitetura técnica
+# Technical Architecture
 
-## Princípios
+## Design principles
 
-1. **Núcleo independente de provedores:** mensagens e respostas usam contratos próprios (`AiRequest`, `AiMessage`, `AiResponse`, `AiProvider`).
-2. **Offline-first para estado:** histórico, tarefas, projetos e memórias são persistidos em Room.
-3. **Retomada, não contexto infinito:** o estado de uma tarefa fica no banco; WorkManager executa o plano e aplica retentativas limitadas para erros de rede transitórios.
-4. **Dados não são instruções:** conteúdo de arquivo é contexto não confiável e não deve alterar as regras do agente.
-5. **Consentimento de envio:** o snapshot do projeto só é construído para uma tarefa vinculada cujo campo `shareProjectContext` esteja habilitado após confirmação explícita.
-6. **Menor privilégio:** a seleção de pasta guarda permissão de leitura; escrita e shell não estão implementados.
-7. **Evidência sobre alegações:** a versão atual não afirma que editou arquivos, executou comandos ou testou builds.
+1. **Provider-neutral AI contracts.** Requests and responses use internal data types rather than depending on a single vendor SDK.
+2. **Local persistence.** Room/SQLite stores chat turns, projects, tasks, and memories so important state survives ordinary navigation and app restarts.
+3. **Context is bounded.** The chat sends recent turns plus selected durable memory; model context limits are handled explicitly rather than described as infinite memory.
+4. **Data is not instructions.** Repository source, generated files, and other imported content are untrusted input and must not override system rules.
+5. **Explicit data sharing.** Repository context is only fetched for chat when the user enables the option. Remote project builds require separate consent.
+6. **Least privilege.** Folder access is user-selected; code execution and arbitrary shell access are not part of the chat.
+7. **Evidence before claims.** The app distinguishes source generation, a completed remote build, and a verified APK artifact.
 
-## Componentes
+## Application layers
 
-- `MainActivity` / `ui`: telas de início, conversa, projetos, tarefas, memória e configuração.
-- `NucleoApplication` / `AppContainer`: composição manual das dependências sem framework de injeção.
-- `data/local`: entidades Room e DAOs.
-- `data/settings`: metadados de provedor e validação de URL.
-- `core/security/SecretStore`: cifragem autenticada AES-GCM com chave Android Keystore.
-- `core/ai/ModelRouter`: seleciona runtime local quando disponível e faz fallback para provedor remoto.
-- `core/ai/OpenAiCompatibleProvider`: adaptador HTTP sem depender de SDK de um fornecedor.
-- `domain/task/TaskCoordinator`: persiste e agenda o trabalho.
-- `domain/task/ProjectSnapshotReader`: percorre árvore e trechos textuais sob limites de profundidade, tamanho e contagem.
-- `worker/PlanningWorker`: produz plano, persiste resultado e memória dentro de uma transação.
-- `core/lang`: lexer, parser, AST e interpretador da NúcleoLang 0.2 alfa, sem acesso direto ao SO.
-- `ui/lang/LangPlaygroundScreen`: playground no aparelho para editar e executar programas NúcleoLang dentro de orçamento.
-- `docs/PROJECT_FACTORY_SPEC.md`: especifica a futura geração de projetos em staging, validação e build adapters; não é código executável ainda.
+- \`MainActivity\` and Compose UI: home, conversation, project library, tasks, memory, language playground, project factory, and settings.
+- \`NucleoApplication\` / \`AppContainer\`: application-wide dependency composition.
+- \`data/local\`: Room entities and DAOs for projects, task state, chat messages, and memories.
+- \`data/settings\`: provider profiles, fallback-route metadata, and URL validation.
+- \`core/security/SecretStore\`: authenticated AES-GCM encryption using an Android Keystore-managed AES key.
+- \`core/ai/ModelRouter\`: selects configured routes, applies context budgets, and handles provider cooldowns and fallback.
+- \`core/ai/OpenAiCompatibleProvider\`: HTTP adapter for compatible chat-completions endpoints.
+- \`core/ai/ChatMemoryManager\`: explicit-memory policy, lexical relevance, and durable conversation-summary thresholds.
+- \`domain/github\`: OAuth Device Flow, encrypted session tokens, repository selection, and limited source-context retrieval.
+- \`domain/task\` and WorkManager: durable technical-planning tasks with bounded retries.
+- \`ui/project\` and Project Factory domain services: validated generated-file staging, preview/export, and remote Android build coordination.
+- \`core/lang\`: NúcleoLang lexer, parser, AST, and Kotlin interpreter.
+- \`docs/\`: implementation notes, security boundaries, specifications, and roadmap.
 
-## Fluxo de tarefa atual
+## Chat request flow
 
-1. Usuário descreve objetivo.
-2. Opcionalmente escolhe projeto e aceita o envio limitado do snapshot.
-3. `TaskCoordinator` grava a tarefa antes de enfileirá-la.
-4. WorkManager executa `PlanningWorker` quando houver rede.
-5. O snapshot local é limitado e arquivos secretos conhecidos são ignorados/redigidos.
-6. O roteador usa runtime local apenas se um estiver integrado e pronto; caso contrário, usa o provedor HTTPS configurado.
-7. Resultado e memória são salvos em transação Room.
-8. Falhas de rede recebem retentativas limitadas; outros erros deixam a tarefa bloqueada com mensagem visível.
+1. Persist the user message in Room.
+2. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
+3. Load a bounded chronological history of user/assistant turns.
+4. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
+5. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
+6. Route the request to a configured AI provider within its context budget.
+7. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
+8. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
 
-## Limites atuais
+## GitHub authorization flow
 
-Não há runtime de modelo local concreto, escrita de código em projetos externos, shell, compilador Android embutido, integração Git ou agente que execute ciclos de alteração/teste. NúcleoLang executa programas próprios de escopo limitado, mas não gera ou compila projetos por si só. O chat usa contexto recente de conversa e algumas memórias globais; ainda não existe retrieval semântico nem contexto de chat selecionado por projeto.
+The app uses OAuth Device Flow. Pending device authorization data is stored encrypted so a flow can resume after the browser backgrounds the app or Android recreates the activity. Access and refresh tokens are stored encrypted through Android Keystore-backed storage. The requested scopes are broad (\`repo\`, \`workflow\`, and \`offline_access\`); UI repository selection is not a token-level permission boundary.
 
-## Evolução proposta
+## Project generation and remote builds
 
-- Integrar NúcleoLang ao motor de tarefas depois de consolidar a semântica e o cancelamento.
-- Implementar Project Factory com staging privado, diff e perfis determinísticos de projeto.
-- Provar um build APK real por build adapter, com evidência e hash do artefato.
+Project Factory validates generated paths and content before staging/export. For supported Android scaffolds, a separate remote build workflow can run Gradle with JDK 17 and Android SDK 36 in a user-selected private GitHub repository. Source generation alone is never reported as a successful APK build; the remote workflow and artifact verification must succeed.
 
-- Formalizar estados e eventos por tarefa; gravar checkpoints de cada etapa.
-- Separar ferramenta de leitura, ferramenta de patch e executor de testes.
-- Construir patches em staging, apresentar diff e exigir autorização antes de aplicar.
-- Executar testes num ambiente isolado; detectar arquivos fora da raiz autorizada.
-- Adicionar índice incremental local e retrieval lexical antes de investir em embeddings.
-- Integrar um runtime Android local mediante benchmark de RAM/latência e uma licença compatível.
+## Security boundaries and known limitations
+
+- Remote inference sends prompts, recent conversation context, selected memories, and—when explicitly enabled—limited repository source to the configured provider.
+- No local inference engine is integrated yet; the local runtime interface is an extension point.
+- The chat does not directly edit GitHub repositories or run arbitrary shell commands.
+- AI code review produces proposals and does not execute the reviewed source.
+- NúcleoLang is an interpreter with execution limits; it is not an Android compiler.
+- Automated secret filtering and generated-file validation reduce risk but cannot guarantee detection of every secret or unsafe construct.

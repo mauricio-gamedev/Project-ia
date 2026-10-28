@@ -6,10 +6,22 @@ data class AiMessage(
     val content: String,
 )
 
+enum class AiTaskType {
+    CHAT,
+    PLANNING,
+    CODE_GENERATION,
+    CODE_REVIEW,
+    CODE_REPAIR,
+}
+
 data class AiRequest(
     val messages: List<AiMessage>,
     val temperature: Double = 0.2,
     val maxOutputTokens: Int? = null,
+    /** Ask compatible providers for a syntactically valid JSON object when supported. */
+    val jsonObjectMode: Boolean = false,
+    /** Used to pick an appropriate route and preserve task context during failover. */
+    val taskType: AiTaskType = AiTaskType.CHAT,
 )
 
 data class AiResponse(
@@ -36,8 +48,25 @@ class LocalModelUnavailableException : IllegalStateException(
 class ProviderConfigurationException(message: String) : IllegalStateException(message)
 
 /** A provider status error with a deliberately sanitized user-facing message. */
-class ProviderHttpException(val statusCode: Int) : IllegalStateException(
+class ProviderHttpException(
+    val statusCode: Int,
+    /** Optional HTTP Retry-After value, capped by the adapter before reaching the router. */
+    val retryAfterSeconds: Long? = null,
+) : IllegalStateException(
     "O provedor respondeu HTTP $statusCode. Confira endpoint, modelo, chave e cota do serviço.",
 ) {
     val isRetryable: Boolean = statusCode == 408 || statusCode == 429 || statusCode in 500..599
+}
+
+data class ProviderRouteFailure(
+    val providerName: String,
+    val reason: String,
+    val retryable: Boolean = false,
+)
+
+class ModelRoutingException(
+    val failures: List<ProviderRouteFailure>,
+    message: String,
+) : IllegalStateException(message) {
+    val isRetryable: Boolean = failures.any { it.retryable }
 }

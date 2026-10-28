@@ -21,10 +21,10 @@ class OpenAiCompatibleProvider(
     override val id: String = configuration.providerName.ifBlank { "OpenAI-compatible" }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(100, TimeUnit.SECONDS)
+        .connectTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(210, TimeUnit.SECONDS)
         .build()
 
     override suspend fun generate(request: AiRequest): AiResponse = withContext(Dispatchers.IO) {
@@ -49,6 +49,11 @@ class OpenAiCompatibleProvider(
             .put("messages", messages)
             .put("temperature", request.temperature.coerceIn(0.0, 2.0))
         request.maxOutputTokens?.takeIf { it > 0 }?.let { payload.put("max_tokens", it) }
+        if (request.jsonObjectMode) {
+            // OpenRouter and many OpenAI-compatible providers support JSON mode.
+            // Callers may retry without this optional parameter when an endpoint rejects it.
+            payload.put("response_format", JSONObject().put("type", "json_object"))
+        }
 
         val body = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
         val httpRequest = Request.Builder()
@@ -62,7 +67,11 @@ class OpenAiCompatibleProvider(
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 // Never surface arbitrary provider response bodies: they can echo user data or secrets.
-                throw ProviderHttpException(response.code)
+                val retryAfterSeconds = response.header("Retry-After")
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.coerceIn(1L, 3_600L)
+                throw ProviderHttpException(response.code, retryAfterSeconds)
             }
             val root = JSONObject(responseBody)
             val choices = root.optJSONArray("choices")
