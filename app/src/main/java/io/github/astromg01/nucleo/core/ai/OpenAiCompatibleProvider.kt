@@ -17,14 +17,26 @@ import java.util.concurrent.TimeUnit
 class OpenAiCompatibleProvider(
     private val configuration: ProviderConfiguration,
     private val apiKey: String,
+    timeoutBudgetMillis: Long = ProviderTimeoutPolicy.MAX_ROUTE_BUDGET_MILLIS,
 ) : AiProvider {
     override val id: String = configuration.providerName.ifBlank { "OpenAI-compatible" }
 
+    private val requestBudgetMillis = timeoutBudgetMillis.coerceIn(
+        1L,
+        ProviderTimeoutPolicy.MAX_ROUTE_BUDGET_MILLIS,
+    )
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(45, TimeUnit.SECONDS)
-        .callTimeout(210, TimeUnit.SECONDS)
+        .connectTimeout(
+            minOf(ProviderTimeoutPolicy.CONNECT_TIMEOUT_MILLIS, requestBudgetMillis),
+            TimeUnit.MILLISECONDS,
+        )
+        .readTimeout(requestBudgetMillis, TimeUnit.MILLISECONDS)
+        .writeTimeout(
+            minOf(ProviderTimeoutPolicy.WRITE_TIMEOUT_MILLIS, requestBudgetMillis),
+            TimeUnit.MILLISECONDS,
+        )
+        .callTimeout(requestBudgetMillis, TimeUnit.MILLISECONDS)
         .build()
 
     override suspend fun generate(request: AiRequest): AiResponse = withContext(Dispatchers.IO) {
