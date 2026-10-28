@@ -24,7 +24,7 @@ class ProjectGenerationRepairServiceTest {
         val result = ProjectGenerationRepairService().repairOnce(draft, before) { request ->
             routeRequestType = request.taskType
             assertTrue(request.jsonObjectMode)
-            assertTrue(request.messages.last().content.contains("BEGIN FILE").not())
+            assertTrue(request.messages.last().content.contains("BEGIN FILE: app.js"))
             AiResponse(
                 text = """{"summary":"Closed the array and kept the same file.","files":[{"path":"app.js","content":"function run() { return [1, 2]; }"}]}""",
                 providerName = "Test provider",
