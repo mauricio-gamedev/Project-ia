@@ -536,24 +536,25 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 jsonObjectMode = true,
                                 taskType = AiTaskType.CODE_GENERATION,
                             )
-                            val response = try {
-                                container.modelRouter.generate(request)
-                            } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
-                                // Some OpenAI-compatible endpoints do not implement JSON mode.
-                                // Retry once without the optional format parameter on HTTP 400 only.
-                                if (error.statusCode == 400 && request.jsonObjectMode) {
-                                    container.modelRouter.generate(request.copy(jsonObjectMode = false))
-                                } else {
-                                    throw error
-                                }
-                            }
-                            val parsedDraft = parseProjectDraft(
-                                responseText = response.text,
+                            val generated = ProjectGenerationCoordinator().generate(
+                                request = request,
                                 name = requestedName,
                                 description = requestedDescription,
                                 profile = requestedProfile,
-                            )
-                            val scaffold = AndroidProjectScaffold.complete(parsedDraft)
+                            ) { attemptRequest ->
+                                try {
+                                    container.modelRouter.generate(attemptRequest)
+                                } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                    // JSON mode is optional for compatible providers. Retry without it only on HTTP 400.
+                                    if (error.statusCode == 400 && attemptRequest.jsonObjectMode) {
+                                        container.modelRouter.generate(attemptRequest.copy(jsonObjectMode = false))
+                                    } else {
+                                        throw error
+                                    }
+                                }
+                            }
+                            val response = generated.response
+                            val scaffold = generated.scaffold
                             val factory = ProjectFactory()
                             val staged = withContext(Dispatchers.IO) {
                                 factory.stage(scaffold.draft, stagingRoot)
