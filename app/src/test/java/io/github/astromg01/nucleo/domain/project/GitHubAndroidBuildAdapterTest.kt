@@ -44,6 +44,43 @@ class GitHubAndroidBuildAdapterTest {
         assertTrue(!safe.contains(githubToken))
     }
 
+    @Test
+    fun reportsProtectedBranchPolicySeparatelyFromAuthenticationFailure() {
+        val protected = classifyGitHubBuildFailure(
+            403,
+            "Repository rule violations found: Cannot update this protected ref",
+        )
+        val unauthorized = classifyGitHubBuildFailure(401, "Bad credentials")
+
+        assertTrue(protected.contains("regra de proteção"))
+        assertTrue(protected.contains("não vai contornar"))
+        assertTrue(unauthorized.contains("sessão OAuth"))
+        assertTrue(unauthorized.contains("expirado"))
+    }
+
+    @Test
+    fun distinguishesMissingRepositoryAccessFromRateLimit() {
+        val permissions = classifyGitHubBuildFailure(403, "Resource not accessible by integration")
+        val inaccessible = classifyGitHubBuildFailure(404, "Not Found")
+        val rateLimit = classifyGitHubBuildFailure(403, "API rate limit exceeded")
+
+        assertTrue(permissions.contains("repo/workflow"))
+        assertTrue(inaccessible.contains("repositórios privados"))
+        assertTrue(rateLimit.contains("cota"))
+    }
+
+    @Test
+    fun redactsFineGrainedGithubTokensAndUnlabelledTokenFields() {
+        val token = "github_pat_" + "B".repeat(35)
+        val raw = "token=$token api-key=sk-" + "C".repeat(24)
+
+        val safe = sanitizeBuildDiagnostics(raw)
+
+        assertTrue(!safe.contains(token))
+        assertTrue(!safe.contains("sk-" + "C".repeat(24)))
+        assertTrue(safe.contains("[REDACTED]"))
+    }
+
     private fun expectIOException(expectedMessage: String, action: () -> Unit) {
         try {
             action()
