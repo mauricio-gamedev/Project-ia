@@ -101,6 +101,7 @@ import io.github.astromg01.nucleo.ui.lang.LangPlaygroundScreen
 import io.github.astromg01.nucleo.ui.project.ProjectFactoryScreen
 import io.github.astromg01.nucleo.ui.github.GitHubConnectorCard
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 private data class TimelineEntry(
     val id: String,
@@ -129,6 +130,7 @@ private fun NucleoShell(container: AppContainer) {
     val scope = rememberCoroutineScope()
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
     var chatSending by remember { mutableStateOf(false) }
+    val chatSummaryMutex = remember { kotlinx.coroutines.sync.Mutex() }
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
     val memories by container.database.memoryDao().observeAll().collectAsState(initial = emptyList())
@@ -282,6 +284,7 @@ private fun NucleoShell(container: AppContainer) {
                     container = container,
                     requestScope = scope,
                     sending = chatSending,
+                    summaryMutex = chatSummaryMutex,
                     onSendingChange = { chatSending = it },
                 )
                 AppScreen.PROJECTS -> ProjectsScreen(projects, onAdd = { folderPicker.launch(null) })
@@ -459,6 +462,7 @@ private fun ChatScreen(
     container: AppContainer,
     requestScope: kotlinx.coroutines.CoroutineScope,
     sending: Boolean,
+    summaryMutex: kotlinx.coroutines.sync.Mutex,
     onSendingChange: (Boolean) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -588,50 +592,56 @@ private fun ChatScreen(
 
                 // Update long-term memory asynchronously; a summary failure never invalidates the answer.
                 requestScope.launch {
-                    try {
-                        val previousSummary = container.database.memoryDao().chatSummary()
-                        val allTurns = container.database.chatMessageDao().latestConversation("main", 80)
-                            .asReversed()
-                            .dropLastWhile { it.role == "user" }
-                        if (chatMemoryManager.shouldSummarize(previousSummary, allTurns)) {
-                            val newTurns = if (previousSummary == null) allTurns
-                                else allTurns.filter { it.createdAt > previousSummary.updatedAt }
-                            val transcript = newTurns.takeLast(36)
-                            if (transcript.isNotEmpty()) {
-                                val summaryResponse = container.modelRouter.generate(
-                                    AiRequest(
-                                        messages = listOf(
-                                            AiMessage(
-                                                "system",
-                                                "Crie um resumo compacto, factual e útil para retomar esta conversa depois. Preserve objetivo ativo, decisões, restrições, preferências estáveis e perguntas abertas. Não invente fatos, não transforme hipóteses em certezas e não guarde senhas, tokens, chaves ou dados financeiros. Retorne somente o resumo em português, até 2500 caracteres.",
+                    summaryMutex.withLock {
+                        try {
+                            val previousSummary = container.database.memoryDao().chatSummary()
+                            val allTurns = container.database.chatMessageDao().latestConversation("main", 80)
+                                .asReversed()
+                                .dropLastWhile { it.role == "user" }
+                            if (chatMemoryManager.shouldSummarize(previousSummary, allTurns)) {
+                                val newTurns = if (previousSummary == null) allTurns
+                                    else allTurns.filter { it.createdAt > previousSummary.updatedAt }
+                                val transcript = newTurns.takeLast(36)
+                                if (transcript.isNotEmpty()) {
+                                    val summaryResponse = container.modelRouter.generate(
+                                        AiRequest(
+                                            messages = listOf(
+                                                AiMessage(
+                                                    "system",
+                                                    "Crie um resumo compacto, factual e útil para retomar esta conversa depois. Preserve objetivo ativo, decisões, restrições, preferências estáveis e perguntas abertas. Não invente fatos, não transforme hipóteses em certezas e não guarde senhas, tokens, chaves ou dados financeiros. Retorne somente o resumo em português, até 2500 caracteres.",
+                                                ),
+                                                AiMessage("user", chatMemoryManager.summaryInput(previousSummary, transcript)),
                                             ),
-                                            AiMessage("user", chatMemoryManager.summaryInput(previousSummary, transcript)),
-                                        ),
-                                        temperature = 0.1,
-                                        maxOutputTokens = 700,
-                                    ),
-                                )
-                                val summaryText = summaryResponse.text.trim().take(3_200)
-                                if (summaryText.isNotBlank()) {
-                                    val timestamp = transcript.last().createdAt
-                                    container.database.memoryDao().upsertChatMemory(
-                                        MemoryEntity(
-                                            id = "chat-summary-main",
-                                            kind = "chat_summary",
-                                            title = "Resumo durável da conversa principal",
-                                            content = summaryText,
-                                            confidence = 0.85f,
-                                            createdAt = previousSummary?.createdAt ?: timestamp,
-                                            updatedAt = timestamp,
+                                            temperature = 0.1,
+                                            maxOutputTokens = 700,
                                         ),
                                     )
+                                    val summaryText = summaryResponse.text.trim().take(3_200)
+                                    if (summaryText.isNotBlank()) {
+                                        val timestamp = transcript.last().createdAt
+                                        val storedSummary = container.database.memoryDao().chatSummary()
+                                        // A newer summary may have been committed by an earlier request in the queue.
+                                        if (storedSummary == null || storedSummary.updatedAt <= timestamp) {
+                                            container.database.memoryDao().upsertChatMemory(
+                                                MemoryEntity(
+                                                    id = "chat-summary-main",
+                                                    kind = "chat_summary",
+                                                    title = "Resumo durável da conversa principal",
+                                                    content = summaryText,
+                                                    confidence = 0.85f,
+                                                    createdAt = storedSummary?.createdAt ?: timestamp,
+                                                    updatedAt = timestamp,
+                                                ),
+                                            )
+                                        }
+                                    }
                                 }
                             }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Summary is a best-effort background task.
                         }
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        // Summary is a best-effort background task.
                     }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
