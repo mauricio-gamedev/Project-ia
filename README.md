@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Versão 0.6.0-alpha · Android Project Factory + compilação APK pela nuvem**
+> **Versão 0.7.0-alpha · Estúdio de conteúdo + GitHub OAuth + compilação APK pela nuvem**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
@@ -12,6 +12,9 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Persistência local com Room/SQLite para projetos, tarefas, conversas e memórias.
 - Seleção de pastas de projeto por Storage Access Framework, com permissão de leitura persistente limitada à pasta escolhida.
 - Chat com histórico persistente e contexto de memórias recentes.
+- Modo Criador integrado ao chat para roteiros, posts, descrições de live, ideias, calendários editoriais e prompts visuais; resultados podem ser copiados ou exportados em Markdown.
+- Conector GitHub por OAuth Device Flow com seleção de repositório; o token é criptografado pelo Android Keystore e o app renova tokens curtos quando necessário.
+- Contexto opcional de repositório no chat, com consentimento explícito antes de enviar trechos de código ao provedor de IA. O token GitHub nunca é colocado no prompt.
 - Adaptador para provedores que exponham endpoint compatível com `POST /chat/completions`.
 - AutoRouter com perfis alternativos, credenciais cifradas individualmente, fallback em cotas/timeouts e cooldown por rota.
 - Catálogo sob demanda da OpenRouter com pesquisa, filtro por preço publicado zerado, janela de contexto e estimativa de preço de entrada/saída; selecionar um modelo apenas preenche o formulário.
@@ -19,7 +22,7 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Conclusão de tarefas e criação da memória do plano em uma transação única, respeitando cancelamentos que ocorram durante uma chamada remota.
 - Bloqueio de salvamento quando o provedor/endpoint mudou, mas uma nova chave ainda não foi informada.
 - Scaffold determinístico para projetos Android: completa arquivos Gradle/Manifest ausentes, corrige configurações básicas inválidas, adiciona Activity de contingência quando falta um launcher válido e preserva permissões comuns do manifest.
-- Adaptador de compilação remota via GitHub Actions com repositório privado, consentimento separado, download e SHA-256 do APK validado; exige configuração explícita e não usa Termux.
+- Adaptador de compilação remota via GitHub Actions usando o mesmo repositório selecionado no Conector GitHub, consentimento separado, download e SHA-256 obrigatório do APK validado; não usa Termux.
 - Context handoff por orçamento aproximado: preserva instruções, pedido original e mensagens recentes ao alternar de modelo.
 - Revisão estática assistida por IA e propostas de reparo em staging separado, com confirmação explícita e sem executar o código.
 - Endpoints remotos precisam usar HTTPS; credenciais não são compartilhadas com o catálogo da OpenRouter quando a rota configurada é de outro host.
@@ -58,7 +61,7 @@ Consulte [docs/ANDROID_SIGNING.md](docs/ANDROID_SIGNING.md) para configurar uma 
 
 ## Compilação de APKs de projetos Android
 
-Consulte [docs/ANDROID_CLOUD_BUILDS.md](docs/ANDROID_CLOUD_BUILDS.md) para configurar um repositório privado, token com permissões restritas e compilação por GitHub Actions. A saída é um APK de depuração; não é um release da Play Store.
+Consulte [docs/ANDROID_CLOUD_BUILDS.md](docs/ANDROID_CLOUD_BUILDS.md) para o build remoto e [docs/GITHUB_CONNECTOR.md](docs/GITHUB_CONNECTOR.md) para autorizar a conta GitHub. O conector exige registrar um OAuth App uma vez e ativar Device Flow; seus escopos atuais são amplos, portanto revise o consentimento. A saída é um APK de depuração; não é um release da Play Store.
 
 ## Como abrir e compilar
 
