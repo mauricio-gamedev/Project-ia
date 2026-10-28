@@ -1,75 +1,70 @@
-# Project Factory — especificação inicial
+# Project Factory — Design and Implementation Specification
 
-## Objetivo
+## Purpose
 
-O Project Factory será o subsistema que converte um objetivo em um projeto reproduzível: escolher uma stack, preparar estrutura e dependências, gerar arquivos, executar verificações, compilar quando houver toolchain disponível e entregar artefatos com um relatório de validação. A interface e o controle de tarefas ficam no Android; o local real de compilação será um adaptador selecionável, não uma suposição.
+Project Factory turns a user goal into a reviewable project package: select a profile, prepare a predictable structure, generate text files, validate the manifest and paths, export source, and optionally invoke a supported remote build adapter. Android is the control surface; the location of compilation must be explicit rather than assumed.
 
-## Estado implementado nesta alfa
+## Implemented in the current alpha
 
-A tela Project Factory solicita o nome, o perfil e os requisitos do projeto. A descrição aceita até 4.000 caracteres, com contador visível e limite aplicado na entrada. Depois de consentimento explícito, envia somente essa descrição ao provedor configurado e espera um manifesto JSON com arquivos de texto. Quando suportado, a solicitação ativa o modo JSON do provedor; se um endpoint OpenAI-compatible rejeitar esse parâmetro com HTTP 400, a tela tenta uma única vez sem o modo opcional. A validação apresenta um diagnóstico mais útil se o modelo ainda retornar JSON inválido. `ProjectFactory` valida o manifesto e grava os arquivos aceitos numa pasta privada de staging, calculando tamanho e SHA-256 de cada arquivo. O usuário pode revisar a lista e exportar o fonte como arquivo ZIP pela ação CreateDocument do Android Storage Access Framework, escolhendo um destino de arquivo em vez de autorizar uma árvore inteira de pastas. O exportador verifica tamanho e SHA-256 novamente e tenta remover o ZIP se a exportação falhar. Como alternativa, há uma rota opcional que usa um Shizuku UserService autorizado para gravar diretamente em `Download/NucleoAIProjects`; ela envia apenas os bytes do ZIP gerado, não lê o staging privado pelo processo privilegiado nem executa comandos de shell. O caminho primário alternativo em Android 11+ solicita a permissão especial `MANAGE_EXTERNAL_STORAGE` abrindo `Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`; só depois da autorização grava diretamente o ZIP em `Download/NucleoAIProjects`. A permissão não é concedida automaticamente.
+The screen accepts a project name, profile, and requirements. The description is limited to 4,000 characters and displays a counter. After explicit consent, the app sends the description to the configured AI provider and requests a JSON manifest of text files. When supported, JSON response mode is requested; if an OpenAI-compatible endpoint rejects that optional parameter with HTTP 400, the app retries once without it.
 
-Limites atuais: 300 arquivos, 512 KiB por arquivo, 4 MiB por projeto e 240 caracteres por caminho. Perfis disponíveis: Android, web, Python e genérico. Os perfis Android/web/Python exigem um conjunto mínimo de arquivos; para Android, o scaffold completa boilerplate Gradle/Manifest comum e pode adicionar uma Activity de contingência quando nenhuma Activity válida é detectada. Isso melhora a estrutura inicial, mas não prova que o código específico do modelo compila. A compilação de APK está disponível por um adaptador remoto opcional de GitHub Actions em repositório privado, após configuração de token e consentimento separado; não existe uma toolchain Android completa executando localmente no app. A saída permanece como fonte revisável até o workflow remoto produzir e validar o APK.
+ProjectFactory validates the manifest and stages accepted files in app-private storage. It calculates file sizes and SHA-256 hashes. Users can review files and export a ZIP through Android's Storage Access Framework; the exporter checks size and hashes again and attempts cleanup when export fails. Alternative export paths can use a user-authorized Shizuku UserService or, after the user explicitly grants Android's special all-files permission, write the generated ZIP under Download/NucleoAIProjects. The privileged route transfers only generated ZIP bytes and does not execute shell commands.
 
-## Fluxo proposto
+Current limits: 300 files, 512 KiB per file, 4 MiB per project, and 240 characters per path. Profiles include Android, web, Python, and generic. The Android/web/Python profiles enforce minimum expected files. For Android, the scaffold can complete common Gradle/manifest boilerplate and add a fallback launcher Activity when no suitable launcher is detected. This improves the starting structure but does not prove model-generated application code compiles.
 
-1. **Entender o objetivo:** levantar plataforma, funções, restrições, artefatos esperados e critérios de aceitação.
-2. **Escolher um perfil:** preferir templates e geradores determinísticos para a estrutura inicial; usar o modelo de IA para código específico da necessidade.
-3. **Criar staging privado:** gerar todos os arquivos em área temporária do app, nunca sobrescrever diretamente uma pasta do usuário.
-4. **Validar estrutura:** conferir arquivos obrigatórios, caminhos, IDs, referências, dependências, segredos acidentais e conflitos.
-5. **Revisar alterações:** exibir o que será criado/modificado e exigir autorização antes de exportar para a pasta selecionada.
-6. **Executar checks:** testes estáticos locais primeiro; testes e compilação por um build adapter apropriado.
-7. **Registrar evidências:** guardar comandos/ações, versões, logs redigidos, duração, resultado e hashes dos artefatos.
-8. **Entregar:** exportar o projeto e os artefatos disponíveis, sem alegar build bem-sucedido caso o build não tenha ocorrido.
+An optional remote GitHub Actions adapter is available for supported Android scaffolds. It requires OAuth configuration, a separately selected private build repository, write/Actions permissions, and explicit consent. No complete Android build toolchain runs inside the app on the phone.
 
-## Perfis iniciais candidatos
+## User flow
 
-- Android nativo: Kotlin, Jetpack Compose, Gradle, manifest, testes e configurações de build.
-- Aplicações web: TypeScript, estrutura de projeto, scripts de build e testes.
-- Python: módulos, ambiente/dependências declarados e testes.
-- Jogos: perfis específicos para Godot e outros motores, condicionados à disponibilidade e licença das ferramentas.
-- Projeto genérico: arquivos arbitrários gerados a partir de um plano validado, sempre em staging.
+1. **Clarify the goal:** identify platform, required behavior, constraints, expected artifacts, and acceptance criteria.
+2. **Select a profile:** prefer deterministic templates for common structure and AI for task-specific source.
+3. **Generate in private staging:** never overwrite a user folder directly while generating.
+4. **Validate structure:** check required files, relative paths, traversal, duplicate paths, file/folder conflicts, and likely secret files.
+5. **Review changes:** preview files and require authorization before export or remote build.
+6. **Run supported checks:** use local static checks where implemented and a designated build adapter for compilation.
+7. **Record evidence:** preserve adapter status, toolchain versions, sanitized logs, duration, artifact metadata, and hashes.
+8. **Deliver accurately:** source generation, successful compilation, and verified artifact delivery are distinct statuses.
 
-A lista é uma ordem de implementação, não uma garantia de compatibilidade universal. Cada perfil deverá ter testes próprios e uma definição explícita do que pode validar.
+## Initial project profiles
 
-## Construção de APKs
+- **Native Android:** Kotlin, Jetpack Compose, Gradle, manifest, tests, and build settings.
+- **Web applications:** TypeScript/JavaScript structure, build scripts, and tests.
+- **Python:** modules, declared dependencies/environment, and tests.
+- **Games:** engine-specific profiles only when tools and licensing permit.
+- **Generic:** arbitrary text-file manifests inside validated staging.
 
-Gerar a fonte de um projeto Android e produzir um APK instalável são etapas diferentes. A primeira é viável localmente no aplicativo. A segunda exige JDK/Gradle, Android SDK, build-tools, dependências compatíveis e recursos suficientes.
+This list is a development order, not a guarantee of universal compatibility. Each profile needs tests and an explicit definition of what it can validate.
 
-O Android será o ambiente de controle principal. O subsistema deve expor adaptadores de build para:
+## APK build adapters
 
-- **Local**, apenas depois de escolher e validar uma toolchain compatível com Android e o dispositivo-alvo; não presumir que executar Gradle diretamente no processo Android funciona.
-- **Build remoto opcional (implementado para Android)**, via GitHub Actions usando a mesma sessão OAuth, mas uma seleção separada de repositório privado dedicado ao build; exige consentimento para envio do código e execução de scripts Gradle.
-- **Exportação de fonte**, sempre disponível, quando nenhum executor de build for configurado.
+Generating Android source and producing an installable APK are different operations. An APK build requires compatible JDK/Gradle, Android SDK/build-tools, dependencies, network access, and sufficient resources.
 
-Nenhum código de projeto deve ser enviado para um serviço de build sem consentimento explícito. Segredos devem ser excluídos dos pacotes por padrão. Um APK só será marcado como validado quando houver resultado de build bem-sucedido e verificações pós-build configuradas.
+- **Local:** not available as a general-purpose Android build executor in this alpha. Do not assume invoking Gradle inside the app is viable.
+- **Remote GitHub Actions:** implemented for supported Android scaffolds, using a user-selected private build repository and separate consent to upload code and run Gradle scripts.
+- **Source export:** available without a build adapter.
 
-## Contrato de build adapter (rascunho)
+No project source should be uploaded to a build service without explicit consent. Secret files must be excluded where possible and reviewed by the user. An APK is marked as built only when the remote job and its configured artifact checks succeed.
 
-Cada implementação deverá expor operações equivalentes a:
+## Build adapter contract
 
-- `inspect(projectSpec)` — declarar toolchains disponíveis, versões e limitações.
-- `validate(stagingProject)` — validar precondições antes de compilar.
-- `build(stagingProject, buildProfile, cancellation)` — produzir um job identificável e retomável.
-- `getStatus(jobId)` — consultar estado e evidências.
-- `collectArtifacts(jobId)` — listar artefatos com caminho, tamanho, hash e metadados.
-- `cancel(jobId)` — solicitar cancelamento seguro.
+A future or alternative adapter should expose operations equivalent to:
 
-Resultados possíveis são tipados: `SUCCESS`, `FAILED`, `CANCELLED`, `BLOCKED` ou `UNSUPPORTED`. `SUCCESS` precisa referenciar evidências verificáveis; não pode ser inferido de texto gerado por modelo.
+- inspect(projectSpec): report available toolchains, versions, and limitations.
+- validate(stagingProject): check prerequisites before compiling.
+- build(stagingProject, profile, cancellation): create an identifiable, resumable job.
+- getStatus(jobId): return status and validation evidence.
+- collectArtifacts(jobId): list artifacts with path, size, hash, and metadata.
+- cancel(jobId): request safe cancellation.
 
-## Segurança e recuperação
+Typed result states are SUCCESS, FAILED, CANCELLED, BLOCKED, and UNSUPPORTED. SUCCESS must reference verifiable execution evidence; it cannot be inferred from model-generated text.
 
-- Raiz do projeto autorizada explicitamente e validação contra path traversal.
-- Staging antes de qualquer escrita externa.
-- Limites de arquivo, tamanho total, tempo e consumo configuráveis.
-- Cancelamento cooperativo e checkpoints; builds não devem bloquear a UI.
-- Dependências e plugins de build auditáveis, sem baixar executáveis cegamente.
-- Aprovação explícita para publicação, assinatura de release e acesso a credenciais.
-- Rollback ou exportação separada em caso de falha, sem destruir o projeto anterior.
+## Security and acceptance criteria
 
-## Critérios de aceitação do primeiro perfil Android
-
-- Gerar um projeto mínimo reproduzível com build Gradle e teste simples.
-- Inspecionar todos os caminhos e manifest antes de exportar.
-- Detectar ausência de JDK/SDK ou incompatibilidade de plugin como `BLOCKED`, nunca como sucesso.
-- Produzir APK de debug apenas quando o GitHub Actions concluir o build com sucesso e o artefato APK passar na verificação de assinatura/checksum.
-- Registrar versão de Gradle/AGP/SDK, saída resumida, hash SHA-256 do APK e status de testes.
+- Use explicit project roots and prevent path traversal.
+- Generate and validate in staging before writing externally.
+- Apply file-count, per-file, total-size, time, and resource limits.
+- Keep long-running work off the UI thread and support cancellation where possible.
+- Make build dependencies and plugins inspectable; do not execute arbitrary downloaded tools blindly.
+- Require explicit approval for publishing, release signing, and credential use.
+- Preserve previous project data if export/build fails; do not overwrite user work.
+- For Android, validate workflow completion, APK signature information, checksum, test status, and toolchain versions. A green build is not proof of runtime correctness.
