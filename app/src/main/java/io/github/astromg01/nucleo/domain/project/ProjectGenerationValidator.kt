@@ -27,6 +27,9 @@ object ProjectGenerationValidator {
 
         draft.files.forEach { file ->
             val extension = file.path.substringAfterLast('.', "").lowercase(Locale.ROOT)
+            if (file.content.isBlank()) {
+                issues += "O arquivo " + file.path + " está vazio; a geração não retornou o conteúdo completo."
+            }
             if (extension in SOURCE_EXTENSIONS) {
                 balancedDelimiterIssue(file.path, file.content, extension)?.let(issues::add)
                 if (file.content.contains(PLACEHOLDER_IMPLEMENTATION_MARKER, ignoreCase = true)) {
@@ -67,9 +70,19 @@ object ProjectGenerationValidator {
             ?: return "A Activity principal do Manifest não tem android:name."
         val manifestPackage = Regex("""(?is)<manifest\b[^>]*\bpackage\s*=\s*["']([^"']+)["']""")
             .find(manifest)?.groupValues?.get(1).orEmpty()
+        // AGP 8 projects commonly declare namespace in Gradle rather than the Manifest.
+        // Use it to resolve relative launcher names before comparing against source packages.
+        val gradleNamespace = draft.files.firstOrNull {
+            it.path.equals("app/build.gradle.kts", ignoreCase = true) ||
+                it.path.equals("app/build.gradle", ignoreCase = true)
+        }?.content?.let { buildFile ->
+            Regex("""(?m)\bnamespace\s*(?:=\s*)?["']([^"']+)["']""")
+                .find(buildFile)?.groupValues?.get(1)
+        }.orEmpty()
+        val packageForResolution = manifestPackage.ifBlank { gradleNamespace }
         val qualifiedName = when {
-            declaredName.startsWith(".") && manifestPackage.isNotBlank() -> manifestPackage + declaredName
-            '.' !in declaredName && manifestPackage.isNotBlank() -> manifestPackage + "." + declaredName
+            declaredName.startsWith(".") && packageForResolution.isNotBlank() -> packageForResolution + declaredName
+            '.' !in declaredName && packageForResolution.isNotBlank() -> packageForResolution + "." + declaredName
             else -> declaredName
         }
 
@@ -92,7 +105,12 @@ object ProjectGenerationValidator {
             else packageMatch.groupValues[1] + "." + activityMatch.groupValues[1]
         }.toSet()
 
-        return if (qualifiedName in activities) null else {
+        val matchesActivity = qualifiedName in activities || activities.any { activity ->
+            activity == declaredName ||
+                (declaredName.startsWith(".") && activity.endsWith(declaredName)) ||
+                (!declaredName.contains('.') && activity.substringAfterLast('.') == declaredName)
+        }
+        return if (matchesActivity) null else {
             "O Manifest aponta para " + declaredName +
                 ", mas não foi encontrada uma Activity compatível em app/src/main/. Corrija o nome/package ou complete a Activity."
         }
