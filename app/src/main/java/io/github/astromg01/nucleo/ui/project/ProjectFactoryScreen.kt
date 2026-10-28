@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -101,12 +105,16 @@ private data class ProjectRepairDiffEntry(
 @Composable
 fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Unit = {}) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
     val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
     val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
     var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedBuildRepository()) }
     var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
+    var githubAccountLogin by remember { mutableStateOf<String?>(null) }
+    var githubSyncTick by remember { mutableStateOf(0) }
+    var syncingGitHub by remember { mutableStateOf(false) }
 
     var projectName by remember { mutableStateOf("Meu projeto") }
     var description by remember { mutableStateOf("") }
@@ -139,6 +147,70 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var repairCandidate by remember { mutableStateOf<StagedProject?>(null) }
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) githubSyncTick += 1
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(githubSyncTick, selectedBuildRepository?.fullName) {
+        val storedToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
+        githubBuildTokenAvailable = storedToken
+        selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
+        if (!storedToken) {
+            githubAccountLogin = null
+            if (buildStatus.isBlank() || buildStatus.startsWith("Sessão GitHub")) {
+                buildStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
+            }
+            return@LaunchedEffect
+        }
+
+        syncingGitHub = true
+        buildStatus = "Validando a sessão GitHub e sincronizando o repositório de build…"
+        try {
+            val token = githubOAuthSession.validAccessToken()
+                ?: throw IOException("Não há token de acesso válido salvo. Reconecte a conta GitHub.")
+            val login = io.github.astromg01.nucleo.domain.github.GitHubConnector()
+                .authenticatedUserLogin(token)
+            githubAccountLogin = login
+            githubBuildTokenAvailable = true
+
+            val repository = githubConnectorPreferences.selectedBuildRepository()
+            selectedBuildRepository = repository
+            if (repository == null) {
+                buildStatus = "Conta GitHub confirmada como @" + login + ", mas falta escolher um repositório privado dedicado à compilação. A seleção do chat é separada."
+            } else {
+                val target = GitHubAndroidBuildAdapter(context).verifyRepository(
+                    repository.owner,
+                    repository.name,
+                    token,
+                )
+                buildStatus = "Conta @" + login + " confirmada · repositório de build " +
+                    target.owner + "/" + target.name + " validado (privado e com escrita)."
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // A stored token and a verified live session are separate states. Keep the stored-session
+            // indicator unless GitHub specifically reports an authentication failure.
+            val message = error.message ?: "Não foi possível validar a sessão GitHub."
+            val authFailure = message.contains("token", ignoreCase = true) ||
+                message.contains("sessão", ignoreCase = true) ||
+                message.contains("reconecte", ignoreCase = true) ||
+                message.contains("401")
+            if (authFailure) githubAccountLogin = null
+            buildStatus = if (authFailure) {
+                "A sessão GitHub foi encontrada no armazenamento, mas não está válida: " + message
+            } else {
+                "O token GitHub está salvo, mas não consegui confirmar a conta/repositório agora: " + message
+            }
+        } finally {
+            syncingGitHub = false
+        }
+    }
 
     fun clearReviewState() {
         val candidate = repairCandidate
@@ -647,29 +719,34 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        if (githubBuildTokenAvailable) "Conta GitHub autorizada neste dispositivo."
-                        else "Conecte sua conta GitHub em Configurações antes de compilar.",
+                        when {
+                            githubAccountLogin != null -> "Conta GitHub confirmada: @" + githubAccountLogin + "."
+                            githubBuildTokenAvailable -> "Existe uma sessão salva; a conta ainda precisa ser validada com o GitHub."
+                            else -> "Nenhuma sessão GitHub salva. Conecte a conta em Configurações."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (syncingGitHub) {
+                        androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                     OutlinedButton(onClick = onOpenGitHubSettings, enabled = !buildingApk && !verifyingBuildTarget, modifier = Modifier.fillMaxWidth()) {
                         Text("Conectar GitHub / escolher repositório de build")
                     }
                     OutlinedButton(
                         onClick = {
                             selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
-                            githubBuildTokenAvailable = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                            githubBuildTokenAvailable = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
+                            githubSyncTick += 1
                             buildStatus = if (selectedBuildRepository == null) {
-                                "Nenhum repositório de build selecionado no Conector GitHub."
-                            } else if (!githubBuildTokenAvailable) {
-                                "Conecte sua conta GitHub antes de verificar o repositório."
+                                "Nenhum repositório de build dedicado selecionado. Vou sincronizar a sessão e validar o estado no GitHub."
                             } else {
-                                "Seleção atualizada. O repositório será validado antes do build."
+                                "Atualizando a seleção salva e verificando novamente a conta e o repositório no GitHub…"
                             }
                         },
-                        enabled = !buildingApk && !verifyingBuildTarget,
+                        enabled = !buildingApk && !verifyingBuildTarget && !syncingGitHub,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Atualizar repositório de build selecionado") }
+                    ) { Text("Sincronizar conta e repositório GitHub") }
                     Button(
                         onClick = {
                             val repository = githubConnectorPreferences.selectedBuildRepository()
