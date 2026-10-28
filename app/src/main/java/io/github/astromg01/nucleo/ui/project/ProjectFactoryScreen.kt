@@ -177,10 +177,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         } catch (error: Exception) {
             val storedTokenExists = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
             val message = error.message.orEmpty()
-            val sessionRejected = message.contains("expirou", ignoreCase = true) ||
-                message.contains("revogad", ignoreCase = true) ||
-                message.contains("HTTP 401", ignoreCase = true) ||
-                message.contains("recusou a sessão OAuth", ignoreCase = true)
+            val sessionRejected =
+                (error is GitHubConnector.GitHubConnectorException && error.statusCode == 401) ||
+                    message.contains("expirou", ignoreCase = true) ||
+                    message.contains("revogad", ignoreCase = true) ||
+                    message.contains("HTTP 401", ignoreCase = true) ||
+                    message.contains("recusou a sessão OAuth", ignoreCase = true)
             githubBuildTokenAvailable = storedTokenExists && !sessionRejected
             githubSessionVerified = false
             githubAccountLogin = null
