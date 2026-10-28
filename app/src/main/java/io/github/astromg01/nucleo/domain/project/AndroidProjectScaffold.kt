@@ -17,6 +17,46 @@ object AndroidProjectScaffold {
     private const val MAIN_ACTIVITY_PATH = "app/src/main/java/io/github/nucleo/generated/NucleoLauncherActivity.kt"
     private const val MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
 
+    private data class ImportDependency(
+        val importPrefix: String,
+        val module: String,
+        val ktsDeclaration: String,
+        val groovyDeclaration: String,
+    )
+
+    private val KNOWN_IMPORT_DEPENDENCIES = listOf(
+        ImportDependency(
+            importPrefix = "androidx.navigation.compose",
+            module = "androidx.navigation:navigation-compose",
+            ktsDeclaration = """implementation("androidx.navigation:navigation-compose:2.10.2")""",
+            groovyDeclaration = """implementation 'androidx.navigation:navigation-compose:2.10.2'""",
+        ),
+        ImportDependency(
+            importPrefix = "androidx.lifecycle.viewmodel.compose",
+            module = "androidx.lifecycle:lifecycle-viewmodel-compose",
+            ktsDeclaration = """implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")""",
+            groovyDeclaration = """implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4'""",
+        ),
+        ImportDependency(
+            importPrefix = "androidx.lifecycle.compose",
+            module = "androidx.lifecycle:lifecycle-runtime-compose",
+            ktsDeclaration = """implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")""",
+            groovyDeclaration = """implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.9.4'""",
+        ),
+        ImportDependency(
+            importPrefix = "kotlinx.coroutines",
+            module = "org.jetbrains.kotlinx:kotlinx-coroutines-android",
+            ktsDeclaration = """implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")""",
+            groovyDeclaration = """implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'""",
+        ),
+        ImportDependency(
+            importPrefix = "okhttp3",
+            module = "com.squareup.okhttp3:okhttp",
+            ktsDeclaration = """implementation("com.squareup.okhttp3:okhttp:4.12.0")""",
+            groovyDeclaration = """implementation 'com.squareup.okhttp3:okhttp:4.12.0'""",
+        ),
+    )
+
     fun complete(draft: ProjectDraft): AndroidScaffoldResult {
         if (draft.profile != ProjectProfile.ANDROID_APP) {
             return AndroidScaffoldResult(draft, emptyList(), emptyList(), false)
@@ -91,6 +131,7 @@ object AndroidProjectScaffold {
             { isUsableAppBuild(it) },
             { dependencies -> appBuildTemplate(slug, dependencies) },
         )
+        synchronizeKnownDependencies(files, replaced)
 
         set(
             "gradle/wrapper/gradle-wrapper.properties",
@@ -297,6 +338,52 @@ object AndroidProjectScaffold {
             id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
         }
     """.trimIndent() + "\n"
+
+    /**
+     * Keeps common generated-source imports and Gradle declarations in sync without replacing
+     * a valid custom build file. Unknown libraries remain visible to preflight/build diagnostics.
+     */
+    private fun synchronizeKnownDependencies(
+        files: MutableList<GeneratedProjectFile>,
+        replaced: MutableList<String>,
+    ) {
+        val source = files.filter { file ->
+            val path = file.path.lowercase(Locale.ROOT)
+            path.startsWith("app/src/main/") && (path.endsWith(".kt") || path.endsWith(".java"))
+        }.joinToString("\n") { it.content }
+        if (source.isBlank()) return
+
+        val buildIndex = files.indexOfFirst {
+            it.path.equals("app/build.gradle.kts", ignoreCase = true) ||
+                it.path.equals("app/build.gradle", ignoreCase = true)
+        }
+        if (buildIndex < 0) return
+        val buildFile = files[buildIndex]
+        val isKotlinDsl = buildFile.path.endsWith(".kts", ignoreCase = true)
+        val required = KNOWN_IMPORT_DEPENDENCIES.filter { dependency ->
+            val importPattern = Regex(
+                "(?m)^\\\\s*import\\\\s+" +
+                    Regex.escape(dependency.importPrefix) + "(?:\\\\.|\\\\s)",
+            )
+            importPattern.containsMatchIn(source) && !buildFile.content.contains(dependency.module)
+        }
+        if (required.isEmpty()) return
+
+        val dependenciesBlock = Regex("""(?s)(\bdependencies\s*\{)(.*?)(\n\s*\})""")
+        val match = dependenciesBlock.find(buildFile.content) ?: return
+        val declarations = required.joinToString("\n") { dependency ->
+            "    " + if (isKotlinDsl) dependency.ktsDeclaration else dependency.groovyDeclaration
+        }
+        val updatedBlock = match.groupValues[1] +
+            match.groupValues[2].trimEnd() +
+            "\n" + declarations +
+            match.groupValues[3]
+        val updatedContent = buildFile.content.replaceRange(match.range, updatedBlock)
+        if (updatedContent != buildFile.content) {
+            files[buildIndex] = GeneratedProjectFile(buildFile.path, updatedContent)
+            if (buildFile.path !in replaced) replaced += buildFile.path
+        }
+    }
 
     private fun appBuildTemplate(slug: String, retainedDependencies: List<String>): String {
         val dependencies = linkedSetOf(

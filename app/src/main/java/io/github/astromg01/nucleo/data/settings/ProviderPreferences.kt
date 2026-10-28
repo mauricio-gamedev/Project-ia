@@ -84,24 +84,46 @@ class ProviderPreferences(context: Context) {
         require(profiles.map { it.id }.distinct().size == profiles.size) {
             "Não é permitido cadastrar duas rotas com o mesmo identificador."
         }
+        val previousById = loadFallbackProfiles().associateBy { it.id }
+        val normalized = profiles.map { profile ->
+            profile.copy(
+                providerName = profile.providerName.trim().ifBlank { "OpenAI-compatible" },
+                baseUrl = profile.baseUrl.trim().trimEnd('/'),
+                modelName = profile.modelName.trim(),
+                priority = profile.priority.coerceIn(0, 10_000),
+                qualityTier = profile.qualityTier.coerceIn(
+                    ProviderConfiguration.MIN_QUALITY_TIER,
+                    ProviderConfiguration.MAX_QUALITY_TIER,
+                ),
+                contextWindowChars = profile.contextWindowChars.coerceIn(
+                    ProviderConfiguration.MIN_CONTEXT_CHARS,
+                    ProviderConfiguration.MAX_CONTEXT_CHARS,
+                ),
+            )
+        }
+        val normalizedById = normalized.associateBy { it.id }
+        normalized.forEach { updated ->
+            val previous = previousById[updated.id]
+            // A stable route ID can survive a model/endpoint edit. Never carry the old route's
+            // cooldown into a different destination, and clear stale state when an ID is reused.
+            if (previous == null || ProviderConfigurationChangePolicy.shouldClearCooldown(previous, updated)) {
+                clearCooldown(updated.id)
+            }
+        }
+        previousById.keys.filterNot { it in normalizedById }.forEach(::clearCooldown)
+
         val json = JSONArray()
-        profiles.forEach { profile ->
+        normalized.forEach { profile ->
             json.put(
                 JSONObject()
                     .put("id", profile.id)
-                    .put("providerName", profile.providerName.trim().ifBlank { "OpenAI-compatible" })
-                    .put("baseUrl", profile.baseUrl.trim().trimEnd('/'))
-                    .put("modelName", profile.modelName.trim())
+                    .put("providerName", profile.providerName)
+                    .put("baseUrl", profile.baseUrl)
+                    .put("modelName", profile.modelName)
                     .put("enabled", profile.enabled)
-                    .put("priority", profile.priority.coerceIn(0, 10_000))
-                    .put("qualityTier", profile.qualityTier.coerceIn(
-                        ProviderConfiguration.MIN_QUALITY_TIER,
-                        ProviderConfiguration.MAX_QUALITY_TIER,
-                    ))
-                    .put("contextWindowChars", profile.contextWindowChars.coerceIn(
-                        ProviderConfiguration.MIN_CONTEXT_CHARS,
-                        ProviderConfiguration.MAX_CONTEXT_CHARS,
-                    )),
+                    .put("priority", profile.priority)
+                    .put("qualityTier", profile.qualityTier)
+                    .put("contextWindowChars", profile.contextWindowChars),
             )
         }
         preferences.edit().putString(KEY_FALLBACK_PROFILES, json.toString()).apply()
