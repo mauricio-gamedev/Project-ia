@@ -378,7 +378,7 @@ class GitHubConnectorPreferences(context: Context) {
         repository, KEY_OWNER, KEY_REPOSITORY, KEY_PRIVATE, KEY_BRANCH, KEY_URL, KEY_DESCRIPTION, KEY_CAN_PUSH,
     )
 
-    /** Dedicated target for APK builds. Falls back to the chat repository until separately set. */
+    /** Dedicated target for APK builds. Never silently reuses the chat-context repository. */
     fun selectedBuildRepository(): GitHubRepository? = readRepository(
         KEY_BUILD_OWNER, KEY_BUILD_REPOSITORY, KEY_BUILD_PRIVATE, KEY_BUILD_BRANCH, KEY_BUILD_URL,
         KEY_BUILD_DESCRIPTION, KEY_BUILD_CAN_PUSH,
