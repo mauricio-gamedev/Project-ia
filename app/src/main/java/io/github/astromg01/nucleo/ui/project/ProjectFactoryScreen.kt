@@ -70,6 +70,9 @@ import io.github.astromg01.nucleo.domain.project.StagedFileEvidence
 import io.github.astromg01.nucleo.domain.project.StagedFilePreview
 import io.github.astromg01.nucleo.domain.project.ProjectProfile
 import io.github.astromg01.nucleo.domain.project.StagedProject
+import io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID
+import io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences
+import io.github.astromg01.nucleo.domain.github.GitHubRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,25 +96,21 @@ private data class ProjectRepairDiffEntry(
 )
 
 @Composable
-fun ProjectFactoryScreen(container: AppContainer) {
+fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
-    val buildPreferences = remember(context) {
-        context.getSharedPreferences("nucleo_android_cloud_build", Context.MODE_PRIVATE)
-    }
+    val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
+    var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedRepository()) }
+    var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
 
-    var projectName by remember { mutableStateOf("Meu projeto") }
+    var projectName by remember { mutableStateOf("Meu projeto")
     var description by remember { mutableStateOf("") }
     var profile by remember { mutableStateOf(ProjectProfile.ANDROID_APP) }
     var remoteConsent by remember { mutableStateOf(false) }
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
-    var buildRepoOwner by remember { mutableStateOf(buildPreferences.getString("owner", "") ?: "") }
-    var buildRepoName by remember { mutableStateOf(buildPreferences.getString("repository", "") ?: "") }
-    var githubBuildToken by remember { mutableStateOf("") }
-    var githubBuildTokenSaved by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_BUILD_TOKEN_ID) != null) }
     var verifyingBuildTarget by remember { mutableStateOf(false) }
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
@@ -554,77 +553,68 @@ fun ProjectFactoryScreen(container: AppContainer) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Compilação de APK na nuvem", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "O Android do celular não inclui JDK + Android SDK + Gradle para compilar qualquer projeto localmente. O Núcleo pode enviar o fonte para um repositório GitHub PRIVADO seu e compilar no GitHub Actions; o APK de depuração volta para o celular.",
+                        "O Núcleo usa sua conexão GitHub autorizada. Escolha o repositório uma única vez em Configurações → Conector GitHub; não precisa colar usuário, nome ou token em cada projeto.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedTextField(
-                        value = buildRepoOwner,
-                        onValueChange = { buildRepoOwner = it },
-                        label = { Text("Usuário/organização do GitHub") },
-                        placeholder = { Text("ex.: mauricio-gamedev") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = buildRepoName,
-                        onValueChange = { buildRepoName = it.trim().replace(" ", "-").take(100) },
-                        label = { Text("Repositório privado dedicado ao build") },
-                        placeholder = { Text("ex.: nucleo-android-builds") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = githubBuildToken,
-                        onValueChange = { githubBuildToken = it.take(512) },
-                        label = { Text("Token pessoal fine-grained") },
-                        placeholder = { Text(if (githubBuildTokenSaved) "Token salvo com criptografia — deixe vazio para manter" else "Cole o token com acesso só ao repositório privado") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                    selectedBuildRepository?.let { repository ->
+                        Text(
+                            "Repositório ativo: ${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"} · branch ${repository.defaultBranch.ifBlank { "não definida" }}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    } ?: Text(
+                        "Nenhum repositório selecionado. Abra o Conector GitHub nas Configurações.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        if (githubBuildTokenSaved) "Token de build salvo no Android Keystore." else "Nenhum token salvo. Ele nunca será enviado ao modelo de IA.",
+                        if (githubBuildTokenAvailable) "Conta GitHub autorizada neste dispositivo."
+                        else "Conecte sua conta GitHub em Configurações antes de compilar.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        "Crie antes um repositório privado e inicialize-o com README. Dê ao token somente as permissões necessárias nesse repositório: Contents, Actions e Workflows em leitura/gravação. O Núcleo instalará um workflow fixo; não enviaremos a chave da OpenRouter para o build.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    OutlinedButton(onClick = onOpenGitHubSettings, enabled = !buildingApk && !verifyingBuildTarget, modifier = Modifier.fillMaxWidth()) {
+                        Text("Conectar GitHub / escolher repositório")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            selectedBuildRepository = githubConnectorPreferences.selectedRepository()
+                            githubBuildTokenAvailable = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                            buildStatus = if (selectedBuildRepository == null) {
+                                "Nenhum repositório selecionado no Conector GitHub."
+                            } else if (!githubBuildTokenAvailable) {
+                                "Conecte sua conta GitHub antes de verificar o repositório."
+                            } else {
+                                "Seleção atualizada. O repositório será validado antes do build."
+                            }
+                        },
+                        enabled = !buildingApk && !verifyingBuildTarget,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Atualizar conexão selecionada") }
                     Button(
                         onClick = {
-                            val token = githubBuildToken.trim().ifBlank {
-                                container.secretStore.readApiKey(GITHUB_BUILD_TOKEN_ID).orEmpty()
-                            }
-                            if (buildRepoOwner.isBlank() || buildRepoName.isBlank()) {
-                                buildStatus = "Preencha o proprietário e o nome do repositório privado."
+                            val repository = githubConnectorPreferences.selectedRepository()
+                            val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).orEmpty()
+                            if (repository == null) {
+                                buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
                             } else if (token.isBlank()) {
-                                buildStatus = "Cole o token do GitHub antes de verificar o repositório."
-                            } else if (!verifyingBuildTarget) {
+                                githubBuildTokenAvailable = false
+                                buildStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
+                            } else if (verifyingBuildTarget || buildingApk) {
+                                Unit
+                            } else {
                                 verifyingBuildTarget = true
-                                buildStatus = "Verificando acesso ao repositório privado…"
-                                val owner = buildRepoOwner.trim()
-                                val repository = buildRepoName.trim()
+                                buildStatus = "Validando acesso e privacidade do repositório selecionado…"
                                 scope.launch {
                                     try {
-                                        val target = GitHubAndroidBuildAdapter(context)
-                                            .verifyRepository(owner, repository, token)
-                                        container.secretStore.saveApiKey(GITHUB_BUILD_TOKEN_ID, token)
-                                        buildPreferences.edit()
-                                            .putString("owner", owner)
-                                            .putString("repository", repository)
-                                            .apply()
-                                        buildRepoOwner = owner
-                                        buildRepoName = repository
-                                        githubBuildToken = ""
-                                        githubBuildTokenSaved = true
-                                        buildStatus = "Repositório privado confirmado: ${target.owner}/${target.name}. A conexão foi salva com segurança."
+                                        val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
+                                        selectedBuildRepository = repository
+                                        buildStatus = "Repositório privado confirmado: ${target.owner}/${target.name}."
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (error: Exception) {
-                                        buildStatus = error.message ?: "Não foi possível verificar o repositório GitHub."
+                                        buildStatus = error.message ?: "Não foi possível validar o repositório."
                                     } finally {
                                         verifyingBuildTarget = false
                                     }
@@ -635,18 +625,17 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (verifyingBuildTarget) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                        else Text("Verificar e salvar repositório privado")
+                        else Text("Verificar repositório privado")
                     }
-                    if (buildStatus.isNotBlank()) {
-                        Text(
-                            buildStatus,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
-                                buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
-                                buildStatus.startsWith("Falha")) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.secondary,
-                        )
-                    }
+                    if (buildStatus.isNotBlank()) Text(
+                        buildStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
+                            buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
+                            buildStatus.startsWith("Falha") || buildStatus.startsWith("Nenhum") ||
+                            buildStatus.startsWith("Conecte")) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.secondary,
+                    )
                 }
             }
         }
@@ -670,7 +659,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                 enabled = !buildingApk && !exporting,
                             )
                             Text(
-                                "Autorizo enviar este projeto ao repositório GitHub privado informado e executar os scripts Gradle do projeto no runner do GitHub Actions. Revise o fonte primeiro; scripts Gradle podem executar código durante a compilação.",
+                                "Autorizo enviar este projeto ao repositório GitHub privado selecionado e executar os scripts Gradle no runner do GitHub Actions. Revise o fonte primeiro; scripts Gradle podem executar código durante a compilação.",
                                 modifier = Modifier.padding(top = 10.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -678,27 +667,28 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         }
                         Button(
                             onClick = {
-                                val token = githubBuildToken.trim().ifBlank {
-                                    container.secretStore.readApiKey(GITHUB_BUILD_TOKEN_ID).orEmpty()
-                                }
+                                val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).orEmpty()
+                                val repository = githubConnectorPreferences.selectedRepository()
                                 when {
                                     !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
-                                    buildRepoOwner.isBlank() || buildRepoName.isBlank() || token.isBlank() ->
-                                        buildStatus = "Configure e verifique o repositório privado e o token do GitHub antes de compilar."
+                                    repository == null -> buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
+                                    token.isBlank() -> {
+                                        githubBuildTokenAvailable = false
+                                        buildStatus = "Conecte sua conta GitHub em Configurações antes de compilar."
+                                    }
+                                    !repository.isPrivate -> buildStatus = "Por segurança, a compilação aceita somente um repositório privado."
                                     buildingApk || verifyingBuildTarget -> Unit
                                     else -> {
                                         buildingApk = true
                                         builtApk = null
                                         buildStatus = "Preparando build remoto…"
-                                        val owner = buildRepoOwner.trim()
-                                        val repository = buildRepoName.trim()
                                         scope.launch {
                                             try {
                                                 val artifact = GitHubAndroidBuildAdapter(context).build(
                                                     stagedProject = staged,
                                                     stagingRoot = stagingRoot,
-                                                    owner = owner,
-                                                    repository = repository,
+                                                    owner = repository.owner,
+                                                    repository = repository.name,
                                                     token = token,
                                                     onStatus = { update -> scope.launch { buildStatus = update } },
                                                 )
@@ -1530,8 +1520,6 @@ private suspend fun bindShizukuExportService(context: Context): BoundShizukuExpo
         }
     }
 }
-
-private const val GITHUB_BUILD_TOKEN_ID = "github_android_build"
 
 private fun safeApkFilename(raw: String): String {
     val base = raw.map { character ->
