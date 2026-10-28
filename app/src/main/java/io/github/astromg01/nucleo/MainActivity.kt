@@ -553,6 +553,8 @@ private fun ChatScreen(
     var exportContent by remember { mutableStateOf("") }
     var chatCommandStatus by remember { mutableStateOf("") }
     var conversationMenuExpanded by remember { mutableStateOf(false) }
+    var chatMaintenance by remember { mutableStateOf(false) }
+    var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val markdownExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri == null) {
@@ -595,7 +597,9 @@ private fun ChatScreen(
     }
 
     fun clearConversation(sessionId: String, deleteAndStartNew: Boolean) {
+        if (chatMaintenance) return
         conversationMenuExpanded = false
+        chatMaintenance = true
         chatCommandStatus = if (deleteAndStartNew) "Excluindo conversa…" else "Limpando conversa…"
         requestScope.launch {
             try {
@@ -614,6 +618,8 @@ private fun ChatScreen(
                 throw cancelled
             } catch (error: Exception) {
                 chatCommandStatus = error.message ?: "Não foi possível alterar esta conversa."
+            } finally {
+                chatMaintenance = false
             }
         }
     }
@@ -624,7 +630,7 @@ private fun ChatScreen(
         existingUserMessageId: String? = null,
     ) {
         val text = messageText.trim()
-        if (text.isBlank() || sending) return
+        if (text.isBlank() || sending || chatMaintenance) return
         val command = ChatCommandParser.parse(text)
         if (command != null) {
             draft = ""
@@ -823,19 +829,22 @@ private fun ChatScreen(
                             )
                         },
                         onClick = { activateConversation(conversation.sessionId) },
-                        enabled = !sending,
+                        enabled = !sending && !chatMaintenance,
                     )
                 }
                 HorizontalDivider()
                 DropdownMenuItem(
                     text = { Text("Limpar conversa atual") },
                     onClick = { clearConversation(activeSessionId, deleteAndStartNew = false) },
-                    enabled = !sending,
+                    enabled = !sending && !chatMaintenance,
                 )
                 DropdownMenuItem(
                     text = { Text("Excluir conversa atual") },
-                    onClick = { clearConversation(activeSessionId, deleteAndStartNew = true) },
-                    enabled = !sending,
+                    onClick = {
+                        conversationMenuExpanded = false
+                        pendingDeleteSessionId = activeSessionId
+                    },
+                    enabled = !sending && !chatMaintenance,
                 )
             }
         }
@@ -885,7 +894,7 @@ private fun ChatScreen(
                         )
                     }
                     Button(
-                        enabled = !sending && contentTopic.isNotBlank(),
+                        enabled = !sending && !chatMaintenance && contentTopic.isNotBlank(),
                         onClick = {
                             val creatorPrompt = buildString {
                                 append("Crie material no formato: $contentType.\n")
@@ -975,13 +984,34 @@ private fun ChatScreen(
                 value = draft, onValueChange = { draft = it },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text(if (creatorMode) "Pede ajustes, versões ou ideias…" else "Escreve tua ideia…") },
-                maxLines = 5, enabled = !sending,
+                maxLines = 5, enabled = !sending && !chatMaintenance,
             )
-            Button(onClick = { submitMessage(draft, useGitHubContext) }, enabled = draft.isNotBlank() && !sending) {
+            Button(onClick = { submitMessage(draft, useGitHubContext) }, enabled = draft.isNotBlank() && !sending && !chatMaintenance) {
                 if (sending) CircularProgressIndicator(modifier = Modifier.size(18.dp))
                 else Text("Enviar")
             }
         }
+    }
+    pendingDeleteSessionId?.let { sessionIdToDelete ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteSessionId = null },
+            title = { Text("Excluir conversa?") },
+            text = {
+                Text("As mensagens e o resumo desta conversa serão apagados. As outras conversas e memórias gerais serão preservadas.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteSessionId = null
+                        clearConversation(sessionIdToDelete, deleteAndStartNew = true)
+                    },
+                    enabled = !sending && !chatMaintenance,
+                ) { Text("Excluir") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteSessionId = null }) { Text("Cancelar") }
+            },
+        )
     }
 }
 @Composable
