@@ -1,6 +1,6 @@
 # Núcleo AI — base autoral para Android
 
-> **Versão 0.5.0-alpha · catálogo de modelos + timeline sincronizada · identidade de app consolidada**
+> **Versão 0.7.0-alpha · Estúdio de conteúdo + GitHub OAuth + compilação APK pela nuvem**
 
 Núcleo AI é uma aplicação Android nativa pensada como um ambiente pessoal de engenharia de software: memória persistente, conversas com modelos configuráveis, tarefas que podem ser retomadas e futura execução assistida de alterações em repositórios.
 
@@ -12,12 +12,17 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 - Persistência local com Room/SQLite para projetos, tarefas, conversas e memórias.
 - Seleção de pastas de projeto por Storage Access Framework, com permissão de leitura persistente limitada à pasta escolhida.
 - Chat com histórico persistente e contexto de memórias recentes.
+- Modo Criador integrado ao chat para roteiros, posts, descrições de live, ideias, calendários editoriais e prompts visuais; resultados podem ser copiados ou exportados em Markdown.
+- Conector GitHub por OAuth Device Flow; tokens e refresh tokens ficam cifrados pelo Android Keystore. O chat e a Project Factory têm seleções separadas para repositório de contexto e repositório privado dedicado de build.
+- Contexto opcional de repositório no chat, com consentimento explícito antes de enviar trechos de código ao provedor de IA. O token GitHub nunca é colocado no prompt.
 - Adaptador para provedores que exponham endpoint compatível com `POST /chat/completions`.
 - AutoRouter com perfis alternativos, credenciais cifradas individualmente, fallback em cotas/timeouts e cooldown por rota.
 - Catálogo sob demanda da OpenRouter com pesquisa, filtro por preço publicado zerado, janela de contexto e estimativa de preço de entrada/saída; selecionar um modelo apenas preenche o formulário.
 - Linha do tempo inicial baseada em registros Room de projetos, tarefas, memórias e conversas, ordenados por timestamps persistidos.
 - Conclusão de tarefas e criação da memória do plano em uma transação única, respeitando cancelamentos que ocorram durante uma chamada remota.
 - Bloqueio de salvamento quando o provedor/endpoint mudou, mas uma nova chave ainda não foi informada.
+- Scaffold determinístico para projetos Android: completa arquivos Gradle/Manifest ausentes, corrige configurações básicas inválidas, adiciona Activity de contingência quando falta um launcher válido e preserva permissões comuns do manifest.
+- Adaptador de compilação remota via GitHub Actions usando o repositório privado de build selecionado separadamente do repositório de contexto do chat, com consentimento separado, download e SHA-256 obrigatório do APK validado; não usa Termux.
 - Context handoff por orçamento aproximado: preserva instruções, pedido original e mensagens recentes ao alternar de modelo.
 - Revisão estática assistida por IA e propostas de reparo em staging separado, com confirmação explícita e sem executar o código.
 - Endpoints remotos precisam usar HTTPS; credenciais não são compartilhadas com o catálogo da OpenRouter quando a rota configurada é de outro host.
@@ -32,7 +37,7 @@ A base foi construída do zero para este projeto. Ela **não incorpora arquivos-
 
 ## O que ainda não está implementado
 
-É importante distinguir estrutura de funcionalidade concluída. Esta versão **não** modifica arquivos de código, não executa comandos de shell, não implementa Git, não cria pull requests e não inclui um runtime de inferência local. NúcleoLang ainda não compila APKs nem expõe ferramentas de engenharia: ela é uma linguagem interpretada básica cuja integração com o agente será desenvolvida depois. O Project Factory agora tem uma primeira implementação alfa: gera um manifesto com o modelo configurado, valida caminhos e arquivos essenciais, guarda o resultado em staging privado e permite exportar o código-fonte após ação explícita do usuário. Ainda não executa os scripts gerados nem compila os projetos criados. O núcleo de tarefas gera planos técnicos, não implementações automáticas. A interface `LocalModelRuntime` é apenas o ponto de extensão para integrar um motor local numa etapa futura.
+É importante distinguir estrutura de funcionalidade concluída. O chat não edita repositórios nem executa comandos arbitrários. O Project Factory gera fontes em staging privado, valida caminhos e hashes e exporta ZIPs com consentimento. Para o perfil Android, o scaffold completa arquivos básicos ausentes e a aplicação pode solicitar um build remoto de APK de depuração por GitHub Actions, somente depois de o usuário configurar um repositório privado e autorizar o envio/execução dos scripts Gradle. Não há toolchain Android completa executando localmente no A06. O build remoto não garante que todas as funcionalidades estão corretas; apenas um job bem-sucedido confirma que o APK foi compilado e passou pela verificação pós-build. NúcleoLang ainda é uma linguagem interpretada e não compila APKs diretamente. O núcleo de tarefas gera planos técnicos, não implementações automáticas.
 
 Também ainda não há busca semântica por embeddings, indexação incremental completa, agentes paralelos ou treinamento de modelo próprio. Esses recursos não devem ser tratados como existentes só porque constam do roadmap.
 
@@ -53,6 +58,10 @@ Requisitos oficiais de compatibilidade: [AGP 8.13](https://developer.android.com
 ## Assinatura e atualização do APK
 
 Consulte [docs/ANDROID_SIGNING.md](docs/ANDROID_SIGNING.md) para configurar uma chave persistente de assinatura via GitHub Actions Secrets. Sem essa configuração, o CI ainda pode compilar um APK de depuração, mas a assinatura temporária do runner não garante atualização por cima da instalação existente.
+
+## Compilação de APKs de projetos Android
+
+Consulte [docs/ANDROID_CLOUD_BUILDS.md](docs/ANDROID_CLOUD_BUILDS.md) para o build remoto e [docs/GITHUB_CONNECTOR.md](docs/GITHUB_CONNECTOR.md) para autorizar a conta GitHub. O conector exige registrar um OAuth App uma vez e ativar Device Flow; seus escopos atuais são amplos, portanto revise o consentimento. A saída é um APK de depuração; não é um release da Play Store.
 
 ## Como abrir e compilar
 

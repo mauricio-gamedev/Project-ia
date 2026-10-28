@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.github.astromg01.nucleo.AppContainer
@@ -62,10 +63,17 @@ import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
 import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.AndroidProjectScaffold
+import io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter
+import io.github.astromg01.nucleo.domain.project.BuiltAndroidArtifact
 import io.github.astromg01.nucleo.domain.project.StagedFileEvidence
 import io.github.astromg01.nucleo.domain.project.StagedFilePreview
 import io.github.astromg01.nucleo.domain.project.ProjectProfile
 import io.github.astromg01.nucleo.domain.project.StagedProject
+import io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID
+import io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences
+import io.github.astromg01.nucleo.domain.github.GitHubRepository
+import io.github.astromg01.nucleo.domain.github.GitHubOAuthSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,10 +97,14 @@ private data class ProjectRepairDiffEntry(
 )
 
 @Composable
-fun ProjectFactoryScreen(container: AppContainer) {
+fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
+    val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
+    val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
+    var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedBuildRepository()) }
+    var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
 
     var projectName by remember { mutableStateOf("Meu projeto") }
     var description by remember { mutableStateOf("") }
@@ -101,6 +113,11 @@ fun ProjectFactoryScreen(container: AppContainer) {
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var verifyingBuildTarget by remember { mutableStateOf(false) }
+    var buildingApk by remember { mutableStateOf(false) }
+    var buildConsent by remember { mutableStateOf(false) }
+    var buildStatus by remember { mutableStateOf("") }
+    var builtApk by remember { mutableStateOf<BuiltAndroidArtifact?>(null) }
     var visibleFileLimit by remember { mutableStateOf(MAX_VISIBLE_FILES) }
     var previewFile by remember { mutableStateOf<StagedFileEvidence?>(null) }
     var preview by remember { mutableStateOf<StagedFilePreview?>(null) }
@@ -199,6 +216,34 @@ fun ProjectFactoryScreen(container: AppContainer) {
                     statusIsError = true
                 } finally {
                     exporting = false
+                }
+            }
+        }
+    }
+
+    val apkSaveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"),
+    ) { uri: Uri? ->
+        val artifact = builtApk
+        if (uri == null) {
+            buildStatus = "Salvamento do APK cancelado."
+        } else if (artifact == null) {
+            buildStatus = "O APK não está disponível; execute a compilação novamente."
+        } else {
+            buildingApk = true
+            buildStatus = "Salvando e verificando o APK no dispositivo…"
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        copyBuiltApkToUri(context, uri, artifact)
+                    }
+                    buildStatus = "APK salvo no destino escolhido. SHA-256 verificado: ${artifact.sha256}."
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    buildStatus = error.message ?: "Não foi possível salvar o APK."
+                } finally {
+                    buildingApk = false
                 }
             }
         }
@@ -387,11 +432,14 @@ fun ProjectFactoryScreen(container: AppContainer) {
                 } else if (!remoteConsent) {
                     status = "Confirma o envio do pedido ao provedor antes de gerar o projeto."
                     statusIsError = true
-                } else if (!generating && !exporting) {
+                } else if (!generating && !exporting && !buildingApk && !verifyingBuildTarget) {
                     clearReviewState()
                     discardCurrentDraft()
+                    builtApk?.file?.delete()
+                    builtApk = null
+                    buildConsent = false
                     generating = true
-                    status = "A IA está preparando o manifesto de arquivos…"
+                    status = "A IA está preparando os arquivos; o Núcleo vai completar e validar a estrutura base…"
                     statusIsError = false
                     val requestedName = projectName.trim()
                     val requestedDescription = description.trim()
@@ -409,7 +457,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                             append("REGRA CRÍTICA: cada valor content é uma string JSON. Escape quebras de linha como \\n, aspas internas como \\\" e barras invertidas como \\\\. Nunca coloque quebras de linha literais dentro de uma string JSON. ")
                                             append("Não use vírgulas finais. Não invente campos. Cada entrada deve ter somente path e content, ambos strings. ")
                                             append("Para WEB_APP prefira somente index.html, styles.css, script.js e package.json, sem dependências de runtime externas se não forem necessárias. Mantenha o código simples para caber na resposta. ")
-                                            append("Para ANDROID_APP inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts, app/src/main/AndroidManifest.xml e ao menos uma Activity Kotlin em app/src/main/java/. Use SDK 36, minSdk 26 e versões compatíveis de Gradle/AGP/Kotlin. ")
+                                            append("Para ANDROID_APP, gere um app funcional completo com Kotlin e Jetpack Compose, não apenas arquivos de exemplo ou um esqueleto vazio. Inclua uma Activity inicial real, ligada ao manifest, e todo código de UI/estado necessário para a funcionalidade pedida. Inclua settings.gradle.kts, build.gradle.kts, app/build.gradle.kts e app/src/main/AndroidManifest.xml consistentes entre si, com plugin Android, Kotlin/Compose, namespace, applicationId, compileSdk 36, minSdk 26, targetSdk 36, dependências explícitas e repositórios Google/Maven Central. Mantenha a mesma package name entre o código e a Activity declarada no manifest. Não omita imports, métodos chamados, recursos ou dependências usados pelo código. ")
                                             append("Para PYTHON inclua pyproject.toml ou requirements.txt e pelo menos um arquivo .py. Para GENÉRICO use a estrutura apropriada ao pedido. ")
                                             append("Não gere binários, .git, .gradle, build, node_modules, credenciais, chaves, .env, local.properties ou google-services.json. ")
                                             append("Nunca afirme que executou testes ou compilou. A saída é apenas fonte ainda não executada. Caminhos devem ser relativos e únicos.")
@@ -421,7 +469,7 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                     ),
                                 ),
                                 temperature = 0.0,
-                                maxOutputTokens = 12_000,
+                                maxOutputTokens = if (requestedProfile == ProjectProfile.ANDROID_APP) 20_000 else 12_000,
                                 jsonObjectMode = true,
                                 taskType = AiTaskType.CODE_GENERATION,
                             )
@@ -436,19 +484,37 @@ fun ProjectFactoryScreen(container: AppContainer) {
                                     throw error
                                 }
                             }
-                            val draft = parseProjectDraft(
+                            val parsedDraft = parseProjectDraft(
                                 responseText = response.text,
                                 name = requestedName,
                                 description = requestedDescription,
                                 profile = requestedProfile,
                             )
+                            val scaffold = AndroidProjectScaffold.complete(parsedDraft)
                             val factory = ProjectFactory()
                             val staged = withContext(Dispatchers.IO) {
-                                factory.stage(draft, stagingRoot)
+                                factory.stage(scaffold.draft, stagingRoot)
                             }
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
-                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos em staging privado. Ainda não houve compilação."
+                            builtApk?.file?.delete()
+                            builtApk = null
+                            buildConsent = false
+                            val scaffoldNote = if (requestedProfile == ProjectProfile.ANDROID_APP) {
+                                buildString {
+                                    val added = scaffold.addedPaths.size
+                                    val replaced = scaffold.replacedPaths.size
+                                    if (added > 0 || replaced > 0) {
+                                        append(" Base Android completada: $added arquivo(s) adicionados, $replaced configurado(s) corrigido(s). ")
+                                    }
+                                    if (scaffold.defaultLauncherAdded) {
+                                        append("Foi criada uma Activity inicial de contingência; revise se a funcionalidade pedida foi ligada à tela inicial. ")
+                                    }
+                                }
+                            } else {
+                                ""
+                            }
+                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote Ainda não houve compilação."
                             statusIsError = false
                         } catch (cancelled: CancellationException) {
                             throw cancelled
@@ -484,6 +550,100 @@ fun ProjectFactoryScreen(container: AppContainer) {
             color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        if (profile == ProjectProfile.ANDROID_APP) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Compilação de APK na nuvem", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "O Núcleo usa sua conta GitHub autorizada. Escolha um repositório privado dedicado ao build em Configurações → Conector GitHub. Essa seleção é separada do repositório que o chat lê como contexto.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    selectedBuildRepository?.let { repository ->
+                        Text(
+                            "Repositório de build ativo: ${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"} · branch ${repository.defaultBranch.ifBlank { "não definida" }}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    } ?: Text(
+                        "Nenhum repositório de build selecionado. Abra o Conector GitHub nas Configurações.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        if (githubBuildTokenAvailable) "Conta GitHub autorizada neste dispositivo."
+                        else "Conecte sua conta GitHub em Configurações antes de compilar.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = onOpenGitHubSettings, enabled = !buildingApk && !verifyingBuildTarget, modifier = Modifier.fillMaxWidth()) {
+                        Text("Conectar GitHub / escolher repositório de build")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
+                            githubBuildTokenAvailable = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                            buildStatus = if (selectedBuildRepository == null) {
+                                "Nenhum repositório de build selecionado no Conector GitHub."
+                            } else if (!githubBuildTokenAvailable) {
+                                "Conecte sua conta GitHub antes de verificar o repositório."
+                            } else {
+                                "Seleção atualizada. O repositório será validado antes do build."
+                            }
+                        },
+                        enabled = !buildingApk && !verifyingBuildTarget,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Atualizar repositório de build selecionado") }
+                    Button(
+                        onClick = {
+                            val repository = githubConnectorPreferences.selectedBuildRepository()
+                            val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                            if (repository == null) {
+                                buildStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
+                            } else if (!hasStoredToken) {
+                                githubBuildTokenAvailable = false
+                                buildStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
+                            } else if (verifyingBuildTarget || buildingApk) {
+                                Unit
+                            } else {
+                                verifyingBuildTarget = true
+                                buildStatus = "Validando acesso e privacidade do repositório de build…"
+                                scope.launch {
+                                    try {
+                                        val token = githubOAuthSession.validAccessToken()
+                                            ?: throw java.io.IOException("Reconecte sua conta GitHub.")
+                                        val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
+                                        selectedBuildRepository = repository
+                                        buildStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Exception) {
+                                        buildStatus = error.message ?: "Não foi possível validar o repositório."
+                                    } finally {
+                                        verifyingBuildTarget = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !verifyingBuildTarget && !buildingApk,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (verifyingBuildTarget) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                        else Text("Verificar repositório privado")
+                    }
+                    if (buildStatus.isNotBlank()) Text(
+                        buildStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
+                            buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
+                            buildStatus.startsWith("Falha") || buildStatus.startsWith("Nenhum") ||
+                            buildStatus.startsWith("Conecte")) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.secondary,
+                    )
+                }
+            }
+        }
+
         stagedProject?.let { staged ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -493,6 +653,113 @@ fun ProjectFactoryScreen(container: AppContainer) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (staged.profile == ProjectProfile.ANDROID_APP) {
+                        HorizontalDivider()
+                        Text("Gerar APK instalável", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Checkbox(
+                                checked = buildConsent,
+                                onCheckedChange = { buildConsent = it },
+                                enabled = !buildingApk && !exporting,
+                            )
+                            Text(
+                                "Autorizo enviar este projeto ao repositório GitHub privado selecionado e executar os scripts Gradle no runner do GitHub Actions. Revise o fonte primeiro; scripts Gradle podem executar código durante a compilação.",
+                                modifier = Modifier.padding(top = 10.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                                val repository = githubConnectorPreferences.selectedBuildRepository()
+                                when {
+                                    !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
+                                    repository == null -> buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
+                                    !hasStoredToken -> {
+                                        githubBuildTokenAvailable = false
+                                        buildStatus = "Conecte sua conta GitHub em Configurações antes de compilar."
+                                    }
+                                    !repository.isPrivate -> buildStatus = "Por segurança, a compilação aceita somente um repositório privado."
+                                    buildingApk || verifyingBuildTarget -> Unit
+                                    else -> {
+                                        buildingApk = true
+                                        builtApk = null
+                                        buildStatus = "Preparando build remoto…"
+                                        scope.launch {
+                                            try {
+                                                val token = githubOAuthSession.validAccessToken()
+                                                    ?: throw java.io.IOException("Reconecte sua conta GitHub em Configurações.")
+                                                val artifact = GitHubAndroidBuildAdapter(context).build(
+                                                    stagedProject = staged,
+                                                    stagingRoot = stagingRoot,
+                                                    owner = repository.owner,
+                                                    repository = repository.name,
+                                                    token = token,
+                                                    onStatus = { update -> scope.launch { buildStatus = update } },
+                                                )
+                                                builtApk = artifact
+                                                buildStatus = "APK compilado e verificado · SHA-256 ${artifact.sha256}."
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (error: Exception) {
+                                                buildStatus = error.message ?: "Não foi possível compilar o APK."
+                                            } finally {
+                                                buildingApk = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (buildingApk) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                            else Text("Compilar APK na nuvem")
+                        }
+                        if (buildingApk) {
+                            androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        builtApk?.let { artifact ->
+                            Text(
+                                "O build remoto terminou. Este é um APK de depuração, não uma versão de publicação para a Play Store.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                            Text(
+                                "SHA-256: ${artifact.sha256}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    apkSaveLauncher.launch(safeApkFilename(staged.name))
+                                },
+                                enabled = !buildingApk,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Salvar APK no dispositivo") }
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(artifact.runUrl)))
+                                    } catch (_: Exception) {
+                                        buildStatus = "Não foi possível abrir o log do GitHub Actions."
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Abrir log do build") }
+                        }
+                        if (buildStatus.isNotBlank()) {
+                            Text(
+                                buildStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
+                                    buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
+                                    buildStatus.startsWith("Falha")) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.secondary,
+                            )
+                        }
+                    }
                     staged.files.take(visibleFileLimit).forEach { file ->
                         OutlinedButton(
                             onClick = {
@@ -1258,6 +1525,77 @@ private suspend fun bindShizukuExportService(context: Context): BoundShizukuExpo
             }
         }
     }
+}
+
+private fun safeApkFilename(raw: String): String {
+    val base = raw.map { character ->
+        if (character.isLetterOrDigit() || character in listOf(' ', '-', '_', '.')) character else '-'
+    }.joinToString("")
+        .trim()
+        .trim('.')
+        .removeSuffix(".zip")
+        .take(55)
+        .ifBlank { "nucleo-app" }
+    return "$base.apk"
+}
+
+private fun copyBuiltApkToUri(
+    context: Context,
+    destinationUri: Uri,
+    artifact: BuiltAndroidArtifact,
+) {
+    if (!artifact.file.isFile || artifact.file.length() <= 0L) {
+        throw IOException("O APK compilado não está disponível no cache.")
+    }
+    val preCopyDigest = sha256Of(artifact.file)
+    if (!preCopyDigest.equals(artifact.sha256, ignoreCase = true)) {
+        throw IOException("A integridade do APK mudou antes de salvar. Compile novamente.")
+    }
+    try {
+        val output = context.contentResolver.openOutputStream(destinationUri, "w")
+            ?: throw IOException("O Android não conseguiu abrir o destino escolhido.")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        output.use { destination ->
+            FileInputStream(artifact.file).use { source ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val count = source.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > 120L * 1024L * 1024L) throw IOException("O APK excedeu o limite de cópia.")
+                    digest.update(buffer, 0, count)
+                    destination.write(buffer, 0, count)
+                }
+                destination.flush()
+            }
+        }
+        val copiedDigest = digest.digest().joinToString("") { "%02x".format(it) }
+        if (!copiedDigest.equals(artifact.sha256, ignoreCase = true)) {
+            throw IOException("O SHA-256 do APK salvo não corresponde ao artefato validado.")
+        }
+    } catch (error: Exception) {
+        try {
+            DocumentFile.fromSingleUri(context, destinationUri)?.delete()
+        } catch (_: Exception) {
+            // Best effort: a document provider may not allow deleting the partial output.
+        }
+        if (error is IOException) throw error
+        throw IOException("Não foi possível gravar o APK no destino escolhido.", error)
+    }
+}
+
+private fun sha256Of(file: File): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    FileInputStream(file).use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 private const val SHIZUKU_PERMISSION_REQUEST_CODE = 4107

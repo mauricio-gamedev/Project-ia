@@ -8,7 +8,7 @@ O Project Factory será o subsistema que converte um objetivo em um projeto repr
 
 A tela Project Factory solicita o nome, o perfil e os requisitos do projeto. A descrição aceita até 4.000 caracteres, com contador visível e limite aplicado na entrada. Depois de consentimento explícito, envia somente essa descrição ao provedor configurado e espera um manifesto JSON com arquivos de texto. Quando suportado, a solicitação ativa o modo JSON do provedor; se um endpoint OpenAI-compatible rejeitar esse parâmetro com HTTP 400, a tela tenta uma única vez sem o modo opcional. A validação apresenta um diagnóstico mais útil se o modelo ainda retornar JSON inválido. `ProjectFactory` valida o manifesto e grava os arquivos aceitos numa pasta privada de staging, calculando tamanho e SHA-256 de cada arquivo. O usuário pode revisar a lista e exportar o fonte como arquivo ZIP pela ação CreateDocument do Android Storage Access Framework, escolhendo um destino de arquivo em vez de autorizar uma árvore inteira de pastas. O exportador verifica tamanho e SHA-256 novamente e tenta remover o ZIP se a exportação falhar. Como alternativa, há uma rota opcional que usa um Shizuku UserService autorizado para gravar diretamente em `Download/NucleoAIProjects`; ela envia apenas os bytes do ZIP gerado, não lê o staging privado pelo processo privilegiado nem executa comandos de shell. O caminho primário alternativo em Android 11+ solicita a permissão especial `MANAGE_EXTERNAL_STORAGE` abrindo `Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`; só depois da autorização grava diretamente o ZIP em `Download/NucleoAIProjects`. A permissão não é concedida automaticamente.
 
-Limites atuais: 300 arquivos, 512 KiB por arquivo, 4 MiB por projeto e 240 caracteres por caminho. Perfis disponíveis: Android, web, Python e genérico. Os perfis Android/web/Python exigem um conjunto mínimo de arquivos. A validação não prova que o código compila, não executa código gerado, não resolve dependências e não produz APKs. A saída permanece marcada como aguardando revisão.
+Limites atuais: 300 arquivos, 512 KiB por arquivo, 4 MiB por projeto e 240 caracteres por caminho. Perfis disponíveis: Android, web, Python e genérico. Os perfis Android/web/Python exigem um conjunto mínimo de arquivos; para Android, o scaffold completa boilerplate Gradle/Manifest comum e pode adicionar uma Activity de contingência quando nenhuma Activity válida é detectada. Isso melhora a estrutura inicial, mas não prova que o código específico do modelo compila. A compilação de APK está disponível por um adaptador remoto opcional de GitHub Actions em repositório privado, após configuração de token e consentimento separado; não existe uma toolchain Android completa executando localmente no app. A saída permanece como fonte revisável até o workflow remoto produzir e validar o APK.
 
 ## Fluxo proposto
 
@@ -38,7 +38,7 @@ Gerar a fonte de um projeto Android e produzir um APK instalável são etapas di
 O Android será o ambiente de controle principal. O subsistema deve expor adaptadores de build para:
 
 - **Local**, apenas depois de escolher e validar uma toolchain compatível com Android e o dispositivo-alvo; não presumir que executar Gradle diretamente no processo Android funciona.
-- **Build remoto opcional**, por exemplo CI ligada a um repositório, apenas depois de o usuário configurar credenciais e autorizar o envio do código.
+- **Build remoto opcional (implementado para Android)**, via GitHub Actions usando a mesma sessão OAuth, mas uma seleção separada de repositório privado dedicado ao build; exige consentimento para envio do código e execução de scripts Gradle.
 - **Exportação de fonte**, sempre disponível, quando nenhum executor de build for configurado.
 
 Nenhum código de projeto deve ser enviado para um serviço de build sem consentimento explícito. Segredos devem ser excluídos dos pacotes por padrão. Um APK só será marcado como validado quando houver resultado de build bem-sucedido e verificações pós-build configuradas.
@@ -71,5 +71,5 @@ Resultados possíveis são tipados: `SUCCESS`, `FAILED`, `CANCELLED`, `BLOCKED` 
 - Gerar um projeto mínimo reproduzível com build Gradle e teste simples.
 - Inspecionar todos os caminhos e manifest antes de exportar.
 - Detectar ausência de JDK/SDK ou incompatibilidade de plugin como `BLOCKED`, nunca como sucesso.
-- Produzir APK de debug apenas quando um adapter concluir o build e o artefato for localizado e validado.
+- Produzir APK de debug apenas quando o GitHub Actions concluir o build com sucesso e o artefato APK passar na verificação de assinatura/checksum.
 - Registrar versão de Gradle/AGP/SDK, saída resumida, hash SHA-256 do APK e status de testes.
