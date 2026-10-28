@@ -2,6 +2,23 @@
 
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
+
+## Unreleased — 2026-10-28
+
+### Project Factory generation and validation
+- Retry a malformed or incomplete AI file manifest once with the parser's exact rejection reason; provider/network failures are not blindly repeated.
+- Validate non-empty file payloads, unique paths, source delimiters, JSON/XML structure, Android Gradle configuration, launcher placeholders, and Manifest-to-Activity consistency before a project can be built.
+- Make XML validation compatible with Android's XML parser API surface while rejecting DTD/entity declarations and resolving external entities safely.
+- Re-run the Android scaffold and structural checks after AI-assisted repair. Do not create a repair candidate when the size limits prevent the repair request from running.
+- Keep structural errors visible in the Project Factory UI and disable remote builds until the current staged source passes preflight. A clean preflight is not a substitute for successful Gradle compilation.
+
+### GitHub connector and cloud-build recovery
+- Verify the authenticated GitHub account through the /user endpoint rather than equating a stored token with a connected session.
+- On expired/revoked OAuth credentials, clear only the rejected credentials and preserve selected chat/build repositories so a new Device Flow authorization can resume.
+- Distinguish authentication failures from private-repository access, write/workflow permission, API quota, and branch-protection failures; do not bypass repository protections.
+- Capture bounded Gradle/compiler diagnostics, retain the end of the logs where build errors usually appear, and redact common credentials before presenting or sending diagnostics for explicitly consented AI repair.
+- Synchronize staging, repair candidates, validation results, prior APK artifacts, build diagnostics, and GitHub status so a new source revision does not inherit stale build evidence.
+
 ## 0.7.1-alpha — 2026-10-28
 
 ### GitHub OAuth reliability
