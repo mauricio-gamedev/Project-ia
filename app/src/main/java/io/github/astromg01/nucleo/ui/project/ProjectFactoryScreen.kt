@@ -1050,6 +1050,11 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                                                     }
                                                                 }
                                                             }
+                                                            if (!repair.attempted) {
+                                                                status = "A correção automática não foi executada; nenhum rascunho de correção será criado. " + repair.summary
+                                                                statusIsError = true
+                                                                return@launch
+                                                            }
                                                             val completedDraft = AndroidProjectScaffold.complete(repair.draft).draft
                                                             val candidateIssues = ProjectGenerationValidator.validate(completedDraft)
                                                             val originalByPath = originalDraft.files.associateBy { it.path }
