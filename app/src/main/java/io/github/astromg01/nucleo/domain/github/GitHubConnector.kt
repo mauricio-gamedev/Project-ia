@@ -175,6 +175,14 @@ class GitHubConnector(
             )
         }
 
+    /** Validates the current OAuth session against GitHub and returns the authenticated login. */
+    suspend fun authenticatedUserLogin(accessToken: String): String = withContext(Dispatchers.IO) {
+        validateAccessToken(accessToken)
+        val user = JSONObject(apiGet("$API_BASE/user", accessToken))
+        user.optString("login").trim().takeIf { it.isNotBlank() }
+            ?: throw IOException("O GitHub respondeu sem identificar a conta autorizada.")
+    }
+
     suspend fun listRepositories(accessToken: String): List<GitHubRepository> =
         withContext(Dispatchers.IO) {
             validateAccessToken(accessToken)
