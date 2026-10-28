@@ -35,6 +35,7 @@ import io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID
 import io.github.astromg01.nucleo.domain.github.GitHubConnector
 import io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences
 import io.github.astromg01.nucleo.domain.github.GitHubDeviceAuthorization
+import io.github.astromg01.nucleo.domain.github.GitHubOAuthSession
 import io.github.astromg01.nucleo.domain.github.GitHubRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ fun GitHubConnectorCard(container: AppContainer) {
     val scope = rememberCoroutineScope()
     val preferences = remember(context) { GitHubConnectorPreferences(context) }
     val connector = remember { GitHubConnector() }
+    val session = remember(context) { GitHubOAuthSession(context, container.secretStore, connector) }
     var clientId by remember { mutableStateOf(preferences.clientId()) }
     var connected by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
     var repositories by remember { mutableStateOf<List<GitHubRepository>>(emptyList()) }
@@ -54,7 +56,9 @@ fun GitHubConnectorCard(container: AppContainer) {
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
 
-    suspend fun refresh(token: String) {
+    suspend fun refresh() {
+        val token = session.validAccessToken()
+            ?: throw java.io.IOException("Conecte sua conta GitHub para carregar os repositórios.")
         repositories = connector.listRepositories(token)
         selected = preferences.selectedRepository()
         status = "Conexão GitHub pronta · ${repositories.size} repositórios carregados."
@@ -64,7 +68,7 @@ fun GitHubConnectorCard(container: AppContainer) {
         if (connected) {
             val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID)
             if (!token.isNullOrBlank()) {
-                try { refresh(token) } catch (error: Exception) {
+                try { refresh() } catch (error: Exception) {
                     if (error !is CancellationException) status = error.message ?: "Não foi possível atualizar repositórios."
                 }
             }
@@ -109,11 +113,11 @@ fun GitHubConnectorCard(container: AppContainer) {
                                     deviceAuthorization = auth
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(auth.verificationUri))) }
                                     status = "Digite o código no GitHub; o app vai detectar a autorização automaticamente."
-                                    val token = connector.awaitAccessToken(clientId, auth) { update -> scope.launch { status = update } }
-                                    container.secretStore.saveApiKey(GITHUB_OAUTH_TOKEN_ID, token)
+                                    val tokens = connector.awaitAccessToken(clientId, auth) { update -> scope.launch { status = update } }
+                                    session.save(tokens)
                                     connected = true
                                     deviceAuthorization = null
-                                    refresh(token)
+                                    refresh()
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (error: Exception) {
@@ -163,7 +167,7 @@ fun GitHubConnectorCard(container: AppContainer) {
                         if (token.isNullOrBlank()) connected = false else {
                             busy = true
                             scope.launch {
-                                try { refresh(token) } catch (cancelled: CancellationException) {
+                                try { refresh() } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (error: Exception) {
                                     status = error.message ?: "Não foi possível atualizar a lista."
@@ -182,8 +186,7 @@ fun GitHubConnectorCard(container: AppContainer) {
                     }) { Text("Abrir repositório") }
                 }
                 TextButton(enabled = !busy, onClick = {
-                    container.secretStore.removeApiKey(GITHUB_OAUTH_TOKEN_ID)
-                    preferences.clearSelectedRepository()
+                    session.disconnect()
                     connected = false
                     selected = null
                     repositories = emptyList()
