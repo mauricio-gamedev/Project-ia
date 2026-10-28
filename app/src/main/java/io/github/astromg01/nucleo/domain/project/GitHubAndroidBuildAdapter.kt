@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 private val SHA256_DIGEST_PATTERN = Regex("[0-9a-fA-F]{64}")
+private const val MAX_DIAGNOSTIC_CHARS = 8_000
 
 internal fun verifyPublishedApkChecksum(expectedChecksum: String?, actualChecksum: String) {
     val expected = expectedChecksum?.trim()?.takeIf { SHA256_DIGEST_PATTERN.matches(it) }
@@ -710,7 +711,6 @@ class GitHubAndroidBuildAdapter(
         private const val MAX_BYTES_PER_LOG_ENTRY = 1_500_000
         private const val MAX_CHECKSUM_ENTRY_BYTES = 2_048
         private const val MAX_RAW_LOG_CHARS = 200_000
-        private const val MAX_DIAGNOSTIC_CHARS = 8_000
         private const val MAX_DIAGNOSTIC_LINES = 90
         private const val MAX_DIAGNOSTIC_JOBS = 3
         private const val MAX_POLL_ATTEMPTS = 120
