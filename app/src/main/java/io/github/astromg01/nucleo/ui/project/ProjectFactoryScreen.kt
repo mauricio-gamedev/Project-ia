@@ -129,6 +129,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
     var buildStatus by remember { mutableStateOf("") }
+    var githubStatus by remember { mutableStateOf("") }
     var buildFailureDiagnostics by remember { mutableStateOf("") }
     var buildFailureRunUrl by remember { mutableStateOf("") }
     var repairingBuild by remember { mutableStateOf(false) }
@@ -154,6 +155,9 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
 
+    val projectInteractionLocked = generating || exporting || buildingApk || verifyingBuildTarget ||
+        reviewingCode || proposingRepair || repairingBuild
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) githubSyncTick += 1
@@ -162,7 +166,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(githubSyncTick) {
+    LaunchedEffect(githubSyncTick, generating, buildingApk, verifyingBuildTarget, repairingBuild) {
         if (generating || buildingApk || verifyingBuildTarget || repairingBuild) return@LaunchedEffect
 
         val storedToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
@@ -170,12 +174,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
         if (!storedToken) {
             githubAccountLogin = null
-            buildStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
+            githubStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
             return@LaunchedEffect
         }
 
         syncingGitHub = true
-        buildStatus = "Validando a sessão GitHub e sincronizando o repositório de build…"
+        githubStatus = "Validando a sessão GitHub e sincronizando o repositório de build…"
         try {
             val token = githubOAuthSession.validAccessToken()
                 ?: throw IOException("Não há token de acesso válido salvo. Reconecte a conta GitHub.")
@@ -187,7 +191,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             val repository = githubConnectorPreferences.selectedBuildRepository()
             selectedBuildRepository = repository
             if (repository == null) {
-                buildStatus = "Conta GitHub confirmada como @" + login +
+                githubStatus = "Conta GitHub confirmada como @" + login +
                     ", mas falta escolher um repositório privado dedicado à compilação. A seleção do chat é separada."
             } else {
                 try {
@@ -196,12 +200,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         repository.name,
                         token,
                     )
-                    buildStatus = "Conta @" + login + " confirmada · repositório de build " +
+                    githubStatus = "Conta @" + login + " confirmada · repositório de build " +
                         target.owner + "/" + target.name + " validado (privado e com escrita)."
                 } catch (repositoryError: CancellationException) {
                     throw repositoryError
                 } catch (repositoryError: Exception) {
-                    buildStatus = "Conta @" + login + " autenticada, mas o repositório de build não está pronto: " +
+                    githubStatus = "Conta @" + login + " autenticada, mas o repositório de build não está pronto: " +
                         (repositoryError.message ?: "não foi possível validar privacidade e permissão de escrita.")
                 }
             }
@@ -220,7 +224,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     message.contains("não há token de acesso válido", ignoreCase = true)
             }
             if (authFailure) githubAccountLogin = null
-            buildStatus = if (authFailure) {
+            githubStatus = if (authFailure) {
                 "A sessão GitHub foi encontrada no armazenamento, mas precisa de nova autorização: " + message
             } else {
                 "O token está salvo, mas não consegui confirmar a conta no GitHub agora. Isso não prova que a conexão foi perdida: " + message
@@ -255,7 +259,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     }
 
     fun discardCurrentDraft(showStatus: Boolean = false) {
-        val previous = stagedProject ?: return
+        val previous = stagedProject
         stagedProject = null
         currentDraft = null
         generationValidationIssues = emptyList()
@@ -264,6 +268,20 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         preview = null
         previewError = null
         previewLoading = false
+        buildFailureDiagnostics = ""
+        buildFailureRunUrl = ""
+        buildStatus = ""
+        builtApk?.file?.delete()
+        builtApk = null
+        buildConsent = false
+
+        if (previous == null) {
+            if (showStatus) {
+                status = "Rascunho descartado; não havia arquivos temporários ativos."
+                statusIsError = false
+            }
+            return
+        }
         if (showStatus) {
             status = "Limpando o rascunho temporário…"
             statusIsError = false
@@ -285,7 +303,6 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             }
         }
     }
-
     val zipExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri: Uri? ->
@@ -459,6 +476,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 discardCurrentDraft()
             },
             label = { Text("Nome do projeto") },
+            enabled = !projectInteractionLocked,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
@@ -466,22 +484,26 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         Text("Perfil inicial", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileChip("Android / APK", profile == ProjectProfile.ANDROID_APP) {
+                ProfileChip("Android / APK", profile == ProjectProfile.ANDROID_APP, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.ANDROID_APP
+                    clearReviewState()
                     discardCurrentDraft()
                 }
-                ProfileChip("Web", profile == ProjectProfile.WEB_APP) {
+                ProfileChip("Web", profile == ProjectProfile.WEB_APP, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.WEB_APP
+                    clearReviewState()
                     discardCurrentDraft()
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileChip("Python", profile == ProjectProfile.PYTHON) {
+                ProfileChip("Python", profile == ProjectProfile.PYTHON, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.PYTHON
+                    clearReviewState()
                     discardCurrentDraft()
                 }
-                ProfileChip("Genérico", profile == ProjectProfile.GENERIC) {
+                ProfileChip("Genérico", profile == ProjectProfile.GENERIC, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.GENERIC
+                    clearReviewState()
                     discardCurrentDraft()
                 }
             }
@@ -499,6 +521,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             supportingText = {
                 Text("${description.length}/${ProjectFactory.MAX_DESCRIPTION_CHARS} caracteres")
             },
+            enabled = !projectInteractionLocked,
             modifier = Modifier.fillMaxWidth(),
             minLines = 5,
             maxLines = 10,
@@ -509,7 +532,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = remoteConsent, onCheckedChange = { remoteConsent = it })
+                Checkbox(checked = remoteConsent, onCheckedChange = { remoteConsent = it }, enabled = !projectInteractionLocked)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Autorizo enviar o pedido ao modelo configurado", fontWeight = FontWeight.SemiBold)
                     Text(
@@ -766,7 +789,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                             selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
                             githubBuildTokenAvailable = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                             githubSyncTick += 1
-                            buildStatus = if (selectedBuildRepository == null) {
+                            githubStatus = if (selectedBuildRepository == null) {
                                 "Nenhum repositório de build dedicado selecionado. Vou sincronizar a sessão e validar o estado no GitHub."
                             } else {
                                 "Atualizando a seleção salva e verificando novamente a conta e o repositório no GitHub…"
@@ -780,26 +803,26 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                             val repository = githubConnectorPreferences.selectedBuildRepository()
                             val hasStoredToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                             if (repository == null) {
-                                buildStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
+                                githubStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
                             } else if (!hasStoredToken) {
                                 githubBuildTokenAvailable = false
-                                buildStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
+                                githubStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
                             } else if (verifyingBuildTarget || buildingApk) {
                                 Unit
                             } else {
                                 verifyingBuildTarget = true
-                                buildStatus = "Validando acesso e privacidade do repositório de build…"
+                                githubStatus = "Validando acesso e privacidade do repositório de build…"
                                 scope.launch {
                                     try {
                                         val token = githubOAuthSession.validAccessToken()
                                             ?: throw java.io.IOException("Reconecte sua conta GitHub.")
                                         val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
                                         selectedBuildRepository = repository
-                                        buildStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
+                                        githubStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (error: Exception) {
-                                        buildStatus = error.message ?: "Não foi possível validar o repositório."
+                                        githubStatus = error.message ?: "Não foi possível validar o repositório."
                                     } finally {
                                         verifyingBuildTarget = false
                                     }
@@ -812,13 +835,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         if (verifyingBuildTarget) CircularProgressIndicator(modifier = Modifier.height(18.dp))
                         else Text("Verificar repositório privado")
                     }
-                    if (buildStatus.isNotBlank()) Text(
-                        buildStatus,
+                    if (githubStatus.isNotBlank()) Text(
+                        githubStatus,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
-                            buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
-                            buildStatus.startsWith("Falha") || buildStatus.startsWith("Nenhum") ||
-                            buildStatus.startsWith("Conecte")) MaterialTheme.colorScheme.error
+                        color = if (githubStatus.startsWith("O GitHub") || githubStatus.startsWith("O token") ||
+                            githubStatus.startsWith("A compilação falhou") || githubStatus.startsWith("Não foi") ||
+                            githubStatus.startsWith("Falha") || githubStatus.startsWith("Nenhum") ||
+                            githubStatus.startsWith("Conecte")) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.secondary,
                     )
                 }
@@ -1594,8 +1617,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
 }
 
 @Composable
-private fun ProfileChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+private fun ProfileChip(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    FilterChip(selected = selected, onClick = onClick, enabled = enabled, label = { Text(label) })
 }
 
 private fun parseProjectDraft(
