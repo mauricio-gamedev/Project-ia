@@ -114,4 +114,95 @@ class ProjectGenerationValidatorTest {
 
         assertTrue(issues.any { it.contains("não foi encontrada uma Activity compatível") })
     }
+
+
+    @Test
+    fun reportsBlankGeneratedFilesEvenWhenPathsAreValid() {
+        val issues = ProjectGenerationValidator.validate(genericFile("src/empty.js", "   "))
+
+        assertTrue(issues.any { it.contains("está vazio") })
+    }
+
+    @Test
+    fun resolvesRelativeManifestActivityUsingGradleNamespace() {
+        val draft = ProjectDraft(
+            name = "Namespace fallback",
+            profile = ProjectProfile.ANDROID_APP,
+            description = "A valid minimal app.",
+            files = listOf(
+                GeneratedProjectFile(
+                    "settings.gradle.kts",
+                    """
+                    pluginManagement {
+                        repositories {
+                            google()
+                            mavenCentral()
+                            gradlePluginPortal()
+                        }
+                    }
+                    rootProject.name = "Namespace fallback"
+                    include(":app")
+                    """.trimIndent(),
+                ),
+                GeneratedProjectFile(
+                    "build.gradle.kts",
+                    """
+                    plugins {
+                        id("com.android.application") version "8.13.2" apply false
+                        id("org.jetbrains.kotlin.android") version "2.3.21" apply false
+                        id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+                    }
+                    """.trimIndent(),
+                ),
+                GeneratedProjectFile(
+                    "app/build.gradle.kts",
+                    """
+                    plugins {
+                        id("com.android.application")
+                        id("org.jetbrains.kotlin.android")
+                        id("org.jetbrains.kotlin.plugin.compose")
+                    }
+                    android {
+                        namespace = "com.example.namespace"
+                        compileSdk = 36
+                        defaultConfig {
+                            applicationId = "com.example.namespace"
+                            minSdk = 26
+                            targetSdk = 36
+                        }
+                    }
+                    dependencies {}
+                    """.trimIndent(),
+                ),
+                GeneratedProjectFile(
+                    "app/src/main/AndroidManifest.xml",
+                    """
+                    <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                        <application android:label="Namespace fallback">
+                            <activity android:name=".MainActivity" android:exported="true">
+                                <intent-filter>
+                                    <action android:name="android.intent.action.MAIN" />
+                                    <category android:name="android.intent.category.LAUNCHER" />
+                                </intent-filter>
+                            </activity>
+                        </application>
+                    </manifest>
+                    """.trimIndent(),
+                ),
+                GeneratedProjectFile(
+                    "app/src/main/java/com/example/namespace/MainActivity.kt",
+                    """
+                    package com.example.namespace
+                    import androidx.activity.ComponentActivity
+                    class MainActivity : ComponentActivity()
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val issues = ProjectGenerationValidator.validate(draft)
+
+        assertFalse(issues.any { it.contains("não foi encontrada uma Activity compatível") })
+    }
+
 }
