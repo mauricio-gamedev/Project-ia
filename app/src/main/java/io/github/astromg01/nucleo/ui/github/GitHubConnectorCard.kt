@@ -110,11 +110,32 @@ fun GitHubConnectorCard(container: AppContainer) {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            status = error.message ?: "Não foi possível concluir a autorização do GitHub."
-            val lower = status.lowercase()
-            if (lower.contains("expirou") || lower.contains("recusada") || lower.contains("recusou")) {
+            val detail = error.message ?: "Não foi possível concluir a autorização do GitHub."
+            val lower = detail.lowercase()
+            if (session.hasStoredAccessToken()) {
+                // The token was saved but fetching repositories failed; do not show the account as disconnected.
+                connected = true
                 session.clearPendingAuthorization()
                 deviceAuthorization = null
+                status = "GitHub conectado. Não consegui carregar os repositórios agora: $detail"
+            } else if (lower.contains("expirou") || lower.contains("recusada") || lower.contains("recusou") ||
+                lower.contains("client id") || lower.contains("device flow")) {
+                status = detail
+                session.clearPendingAuthorization()
+                deviceAuthorization = null
+            } else {
+                status = "$detail Tentarei verificar novamente automaticamente."
+                if (pollRetry < 8) {
+                    scope.launch {
+                        kotlinx.coroutines.delay(3_000L)
+                        val pending = session.pendingAuthorization()
+                        if (pending?.deviceCode == authorization.deviceCode && !session.hasStoredAccessToken()) {
+                            pollRetry += 1
+                        }
+                    }
+                } else {
+                    status = "$detail Toque em Retomar verificação para tentar novamente."
+                }
             }
         } finally {
             busy = false
@@ -185,7 +206,9 @@ fun GitHubConnectorCard(container: AppContainer) {
                                     throw cancelled
                                 } catch (error: Exception) {
                                     status = error.message ?: "Não foi possível conectar ao GitHub."
-                                } finally { busy = false }
+                                } finally {
+                                    if (deviceAuthorization == null) busy = false
+                                }
                             }
                         }, modifier = Modifier.weight(1f),
                     ) { Text(if (busy) "Conectando…" else "Conectar GitHub") }
