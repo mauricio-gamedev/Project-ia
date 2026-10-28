@@ -1436,6 +1436,16 @@ private fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        OutlinedButton(
+                            onClick = {
+                                container.providerPreferences.clearCooldown(ProviderConfiguration.DEFAULT_PROVIDER_ID)
+                                fallbackProfiles.forEach { profile ->
+                                    container.providerPreferences.clearCooldown(profile.id)
+                                }
+                                status = "Esperas temporárias removidas. A próxima tentativa poderá testar as rotas novamente."
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Limpar esperas dos modelos") }
                         Text("Rotas alternativas configuradas: ${fallbackProfiles.size}", style = MaterialTheme.typography.labelLarge)
                         fallbackProfiles.forEach { profile ->
                             HorizontalDivider()
