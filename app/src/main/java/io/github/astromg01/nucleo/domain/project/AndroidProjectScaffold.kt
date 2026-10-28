@@ -362,7 +362,7 @@ object AndroidProjectScaffold {
         val isKotlinDsl = buildFile.path.endsWith(".kts", ignoreCase = true)
         val required = KNOWN_IMPORT_DEPENDENCIES.filter { dependency ->
             val importPattern = Regex(
-                "(?m)^\\\\s*import\\\\s+" +
+                "(?m)^\\s*import\\s+" +
                     Regex.escape(dependency.importPrefix) + "(?:\\\\.|\\\\s)",
             )
             importPattern.containsMatchIn(source) && !buildFile.content.contains(dependency.module)
