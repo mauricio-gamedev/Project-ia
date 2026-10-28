@@ -5,6 +5,7 @@ import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
 import io.github.astromg01.nucleo.core.security.SecretStore
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -373,7 +374,7 @@ class GitHubConnectorPreferences(context: Context) {
     fun selectedBuildRepository(): GitHubRepository? = readRepository(
         KEY_BUILD_OWNER, KEY_BUILD_REPOSITORY, KEY_BUILD_PRIVATE, KEY_BUILD_BRANCH, KEY_BUILD_URL,
         KEY_BUILD_DESCRIPTION, KEY_BUILD_CAN_PUSH,
-    ) ?: selectedRepository()
+    )
 
     fun saveSelectedBuildRepository(repository: GitHubRepository) = saveRepository(
         repository, KEY_BUILD_OWNER, KEY_BUILD_REPOSITORY, KEY_BUILD_PRIVATE, KEY_BUILD_BRANCH,
@@ -461,6 +462,7 @@ class GitHubOAuthSession(
 ) {
     private val preferences = context.getSharedPreferences("github_connector_session", Context.MODE_PRIVATE)
     private val connectorPreferences = GitHubConnectorPreferences(context)
+    private val refreshMutex = Mutex()
 
     @Synchronized
     fun save(tokens: GitHubOAuthTokens) {
@@ -475,14 +477,19 @@ class GitHubOAuthSession(
     }
 
     suspend fun validAccessToken(): String? {
-        val token = secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) ?: return null
-        val expiry = preferences.getLong(KEY_ACCESS_EXPIRY, 0L)
-        if (expiry == 0L || System.currentTimeMillis() < expiry - REFRESH_EARLY_MILLIS) return token
-        val refresh = secretStore.readApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
-            ?: throw IOException("A sessão GitHub expirou. Reconecte sua conta em Configurações.")
-        val refreshed = connector.refreshAccessToken(connectorPreferences.clientId(), refresh)
-        save(refreshed)
-        return refreshed.accessToken
+        refreshMutex.lock()
+        try {
+            val token = secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) ?: return null
+            val expiry = preferences.getLong(KEY_ACCESS_EXPIRY, 0L)
+            if (expiry == 0L || System.currentTimeMillis() < expiry - REFRESH_EARLY_MILLIS) return token
+            val refresh = secretStore.readApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
+                ?: throw IOException("A sessão GitHub expirou. Reconecte sua conta em Configurações.")
+            val refreshed = connector.refreshAccessToken(connectorPreferences.clientId(), refresh)
+            save(refreshed)
+            return refreshed.accessToken
+        } finally {
+            refreshMutex.unlock()
+        }
     }
 
     fun disconnect() {
