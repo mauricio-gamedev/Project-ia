@@ -13,7 +13,7 @@ object ProjectSourceIntegrityValidator {
             val extension = file.path.substringAfterLast('.', "").lowercase(Locale.ROOT)
             if (extension !in SOURCE_EXTENSIONS || file.content.isBlank()) return@forEach
             findDelimiterProblem(file.content, extension)?.let { problem ->
-                issues += "\${file.path}: $problem"
+                issues += "${file.path}: $problem"
             }
         }
         return issues.take(MAX_ISSUES)
@@ -139,7 +139,7 @@ object ProjectSourceIntegrityValidator {
         if (state == LexicalState.BLOCK_COMMENT) return "comentário de bloco incompleto no fim do arquivo"
         val unclosed = stack.lastOrNull()
         if (unclosed != null) {
-            return "delimitador '\${unclosed.first}' aberto na linha \${unclosed.second} não foi fechado"
+            return "delimitador '${unclosed.first}' aberto na linha ${unclosed.second} não foi fechado"
         }
         return null
     }
