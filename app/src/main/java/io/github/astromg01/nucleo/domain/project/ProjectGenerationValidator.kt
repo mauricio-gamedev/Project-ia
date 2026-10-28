@@ -23,8 +23,8 @@ object ProjectGenerationValidator {
         } catch (error: Exception) {
             issues += (error.message ?: "O projeto não passou na validação estrutural.")
         }
-        if (issues.isNotEmpty()) return issues.toList()
-
+        // Keep scanning for independent structural issues even when the base file/path
+        // validation already found a problem; callers need the complete actionable report.
         draft.files.forEach { file ->
             val extension = file.path.substringAfterLast('.', "").lowercase(Locale.ROOT)
             if (file.content.isBlank()) {
