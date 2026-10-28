@@ -472,7 +472,7 @@ private fun ChatScreen(
     }
     val chatMemoryManager = remember { io.github.astromg01.nucleo.core.ai.ChatMemoryManager() }
     var draft by remember { mutableStateOf("") }
-    var recoveredOrphanMessageId by rememberSaveable { mutableStateOf("") }
+    var recoveredOrphanMessageId by remember { mutableStateOf("") }
     var creatorMode by remember { mutableStateOf(false) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
     var contentPlatform by remember { mutableStateOf("TikTok / Reels / Shorts") }
@@ -513,15 +513,25 @@ private fun ChatScreen(
         githubConnected = container.secretStore.readApiKey(io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID) != null
     }
 
-    fun submitMessage(messageText: String, includeRepository: Boolean) {
+    fun submitMessage(
+        messageText: String,
+        includeRepository: Boolean,
+        existingUserMessageId: String? = null,
+    ) {
         val text = messageText.trim()
         if (text.isBlank() || sending) return
+        val submittedMessageId = existingUserMessageId ?: java.util.UUID.randomUUID().toString()
+        recoveredOrphanMessageId = submittedMessageId
         onSendingChange(true)
         draft = ""
         contentActionStatus = ""
         requestScope.launch {
             try {
-                container.database.chatMessageDao().insert(ChatMessageEntity(role = "user", content = text))
+                if (existingUserMessageId == null) {
+                    container.database.chatMessageDao().insert(
+                        ChatMessageEntity(id = submittedMessageId, role = "user", content = text),
+                    )
+                }
                 val explicitMemory = chatMemoryManager.createExplicitMemory(text)
                 if (explicitMemory != null) container.database.memoryDao().upsertChatMemory(explicitMemory)
 
@@ -642,7 +652,7 @@ private fun ChatScreen(
         val last = messages.lastOrNull()
         if (!sending && last != null && last.role == "user" && last.id != recoveredOrphanMessageId) {
             recoveredOrphanMessageId = last.id
-            submitMessage(last.content, includeRepository = false)
+            submitMessage(last.content, includeRepository = false, existingUserMessageId = last.id)
         }
     }
 
