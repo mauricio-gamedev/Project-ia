@@ -139,11 +139,13 @@ class ProjectCodeReviewService(
         val jsonFindings = json.optJSONArray("findings")
             ?: throw IllegalArgumentException("O relatório de revisão não contém uma lista 'findings' válida.")
         val findings = mutableListOf<CodeReviewFinding>()
+        var acceptedPathCount = 0
         for (index in 0 until minOf(jsonFindings.length(), MAX_FINDINGS)) {
                 val item = jsonFindings.optJSONObject(index)
                     ?: throw IllegalArgumentException("O achado " + (index + 1) + " não é um objeto JSON válido.")
                 val path = item.optString("path", "").take(MAX_PATH_CHARS)
                 if (path !in allowedPaths) continue
+                acceptedPathCount++
                 val severity = item.optString("severity", "warning").lowercase()
                     .takeIf { it in ALLOWED_SEVERITIES } ?: "warning"
                 val lineValue = item.optInt("line", 0).takeIf { it in 1..MAX_LINE_NUMBER }
@@ -151,6 +153,9 @@ class ProjectCodeReviewService(
                 val recommendation = item.optString("recommendation", "").trim().take(MAX_FINDING_TEXT_CHARS)
                 if (problem.isBlank()) continue
                 findings += CodeReviewFinding(severity, path, lineValue, problem, recommendation)
+        }
+        if (jsonFindings.length() > 0 && acceptedPathCount == 0) {
+            throw IllegalArgumentException("A revisão não apontou nenhum caminho presente nos arquivos autorizados.")
         }
         return ProjectCodeReviewReport(
             summary = summary,

@@ -175,7 +175,10 @@ private fun NucleoShell(
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
     val memories by container.database.memoryDao().observeAll().collectAsState(initial = emptyList())
-    val chatMessages by container.database.chatMessageDao().observeRecentSession("main", 30).collectAsState(initial = emptyList())
+    val homeChatFlow = remember(container.database) {
+        container.database.chatMessageDao().observeRecentSession("main", 30)
+    }
+    val chatMessages by homeChatFlow.collectAsState(initial = emptyList())
     val config = container.providerPreferences.load()
     val recentActivities = remember(projects, tasks, memories, chatMessages) {
         buildList {
@@ -498,10 +501,10 @@ private fun FeatureLine(text: String) {
     }
 }
 
-@Composable
 private const val MAX_RENDERED_CHAT_MESSAGES = 300
 private const val MAX_CONVERSATION_TITLE_CHARS = 36
 
+@Composable
 private fun ChatScreen(
     container: AppContainer,
     requestScope: kotlinx.coroutines.CoroutineScope,
@@ -518,10 +521,14 @@ private fun ChatScreen(
     var activeSessionId by rememberSaveable {
         mutableStateOf(chatPreferences.getString("active_session_id", "main") ?: "main")
     }
-    val messages by container.database.chatMessageDao()
-        .observeRecentSession(activeSessionId, MAX_RENDERED_CHAT_MESSAGES)
-        .collectAsState(initial = emptyList())
-    val conversations by container.database.chatMessageDao().observeSessions().collectAsState(initial = emptyList())
+    val messagesFlow = remember(container.database, activeSessionId) {
+        container.database.chatMessageDao().observeRecentSession(activeSessionId, MAX_RENDERED_CHAT_MESSAGES)
+    }
+    val messages by messagesFlow.collectAsState(initial = emptyList())
+    val conversationsFlow = remember(container.database) {
+        container.database.chatMessageDao().observeSessions()
+    }
+    val conversations by conversationsFlow.collectAsState(initial = emptyList())
     val currentConversationTitle = conversations.firstOrNull { it.sessionId == activeSessionId }
         ?.title?.lineSequence()?.firstOrNull()?.take(MAX_CONVERSATION_TITLE_CHARS)
         ?: "Nova conversa"

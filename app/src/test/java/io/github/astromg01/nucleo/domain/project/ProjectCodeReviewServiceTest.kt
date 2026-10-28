@@ -56,6 +56,20 @@ class ProjectCodeReviewServiceTest {
     }
 
     @Test
+    fun reviewParserRejectsReportsContainingOnlyUnauthorizedPaths() {
+        try {
+            service.parseReviewResponse(
+                """{"summary":"External path","findings":[{"severity":"error","path":"../../outside.kt","problem":"bad","recommendation":"fix"}]}""",
+                setOf("src/main.kt"),
+                partial = false,
+            )
+            throw AssertionError("Expected staged-path rejection.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message!!.contains("caminho presente"))
+        }
+    }
+
+    @Test
     fun repairParserRejectsAnyPathNotInTheStagingManifest() {
         val response = """{"summary":"bad","files":[{"path":"../../outside.txt","content":"bad"}]}"""
 
