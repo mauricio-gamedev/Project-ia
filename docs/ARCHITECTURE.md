@@ -17,7 +17,7 @@
 - \`data/local\`: Room entities and DAOs for projects, task state, chat messages, and memories.
 - \`data/settings\`: provider profiles, fallback-route metadata, and URL validation.
 - \`core/security/SecretStore\`: authenticated AES-GCM encryption using an Android Keystore-managed AES key.
-- \`core/ai/ModelRouter\`: selects configured routes, applies context budgets, and handles provider cooldowns and fallback.
+- \`core/ai/ModelRouter\`: selects configured routes, applies context budgets, enforces per-route and whole-request deadlines, and handles provider cooldowns and fallback.
 - \`core/ai/OpenAiCompatibleProvider\`: HTTP adapter for compatible chat-completions endpoints.
 - \`core/ai/ChatMemoryManager\`: explicit-memory policy, lexical relevance, and durable conversation-summary thresholds.
 - \`domain/github\`: OAuth Device Flow, encrypted session tokens, repository selection, and limited source-context retrieval.
@@ -35,6 +35,7 @@
 5. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
 6. Route the request to a configured AI provider within its context budget.
 7. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
+   The remote AutoRouter caps one provider route at 40 seconds and the whole remote request at 90 seconds. Compatibility retries share the same remaining route and global budgets. Chat rendering uses safe text-only Markdown styling, selectable text, and explicit copy controls.
 8. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
 
 ## GitHub authorization flow
