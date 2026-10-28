@@ -54,7 +54,7 @@ interface MemoryDao {
     @Query("SELECT * FROM memories WHERE projectId = :projectId ORDER BY updatedAt DESC")
     fun observeForProject(projectId: String): Flow<List<MemoryEntity>>
 
-    @Query("SELECT * FROM memories ORDER BY updatedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM memories WHERE kind IN ('chat_summary', 'chat_fact', 'chat_preference') ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun latest(limit: Int): List<MemoryEntity>
 
     @Query("SELECT * FROM memories WHERE kind = 'chat_summary' LIMIT 1")
