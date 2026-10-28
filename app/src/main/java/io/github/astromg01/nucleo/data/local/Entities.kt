@@ -1,5 +1,6 @@
 package io.github.astromg01.nucleo.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -65,6 +66,14 @@ data class ChatMessageEntity(
     val content: String,
     val provider: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Lightweight projection for conversation switching; message bodies remain in the local Room database. */
+data class ChatSessionSummary(
+    @ColumnInfo(name = "sessionId") val sessionId: String,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "updatedAt") val updatedAt: Long,
+    @ColumnInfo(name = "messageCount") val messageCount: Long,
 )
 
 enum class TaskStatus {

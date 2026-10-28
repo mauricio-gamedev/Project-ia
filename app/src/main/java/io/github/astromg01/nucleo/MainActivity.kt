@@ -92,6 +92,8 @@ import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
+import io.github.astromg01.nucleo.ui.chat.ChatCommandParser
+import io.github.astromg01.nucleo.ui.chat.ChatCommandType
 import io.github.astromg01.nucleo.data.local.ChatMessageEntity
 import io.github.astromg01.nucleo.data.local.MemoryEntity
 import io.github.astromg01.nucleo.data.local.ProjectEntity
@@ -173,7 +175,7 @@ private fun NucleoShell(
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
     val memories by container.database.memoryDao().observeAll().collectAsState(initial = emptyList())
-    val chatMessages by container.database.chatMessageDao().observeSession("main").collectAsState(initial = emptyList())
+    val chatMessages by container.database.chatMessageDao().observeRecentSession("main", 30).collectAsState(initial = emptyList())
     val config = container.providerPreferences.load()
     val recentActivities = remember(projects, tasks, memories, chatMessages) {
         buildList {
@@ -497,6 +499,9 @@ private fun FeatureLine(text: String) {
 }
 
 @Composable
+private const val MAX_RENDERED_CHAT_MESSAGES = 300
+private const val MAX_CONVERSATION_TITLE_CHARS = 36
+
 private fun ChatScreen(
     container: AppContainer,
     requestScope: kotlinx.coroutines.CoroutineScope,
@@ -505,9 +510,21 @@ private fun ChatScreen(
     onSendingChange: (Boolean) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val messages by container.database.chatMessageDao().observeSession("main").collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val chatPreferences = remember(context) {
+        context.getSharedPreferences("nucleo_chat_sessions", android.content.Context.MODE_PRIVATE)
+    }
+    var activeSessionId by rememberSaveable {
+        mutableStateOf(chatPreferences.getString("active_session_id", "main") ?: "main")
+    }
+    val messages by container.database.chatMessageDao()
+        .observeRecentSession(activeSessionId, MAX_RENDERED_CHAT_MESSAGES)
+        .collectAsState(initial = emptyList())
+    val conversations by container.database.chatMessageDao().observeSessions().collectAsState(initial = emptyList())
+    val currentConversationTitle = conversations.firstOrNull { it.sessionId == activeSessionId }
+        ?.title?.lineSequence()?.firstOrNull()?.take(MAX_CONVERSATION_TITLE_CHARS)
+        ?: "Nova conversa"
     val githubPreferences = remember(context) { io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences(context) }
     val githubConnector = remember { io.github.astromg01.nucleo.domain.github.GitHubConnector() }
     val githubSession = remember(context) {
@@ -527,6 +544,8 @@ private fun ChatScreen(
     var latestGeneratedContent by remember { mutableStateOf("") }
     var contentActionStatus by remember { mutableStateOf("") }
     var exportContent by remember { mutableStateOf("") }
+    var chatCommandStatus by remember { mutableStateOf("") }
+    var conversationMenuExpanded by remember { mutableStateOf(false) }
 
     val markdownExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri == null) {
@@ -548,12 +567,48 @@ private fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    // Entering a conversation never triggers a long auto-scroll. The user controls when to jump to the tail.
+    LaunchedEffect(activeSessionId) {
+        listState.scrollToItem(0)
     }
     LaunchedEffect(Unit) {
         selectedGitHubRepository = githubPreferences.selectedRepository()
         githubConnected = container.secretStore.readApiKey(io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID) != null
+    }
+
+    fun activateConversation(sessionId: String) {
+        activeSessionId = sessionId
+        chatPreferences.edit().putString("active_session_id", sessionId).apply()
+        conversationMenuExpanded = false
+    }
+
+    fun startNewConversation(showStatus: Boolean = true) {
+        activateConversation(java.util.UUID.randomUUID().toString())
+        if (showStatus) chatCommandStatus = "Nova conversa criada. O histórico anterior foi preservado."
+    }
+
+    fun clearConversation(sessionId: String, deleteAndStartNew: Boolean) {
+        conversationMenuExpanded = false
+        chatCommandStatus = if (deleteAndStartNew) "Excluindo conversa…" else "Limpando conversa…"
+        requestScope.launch {
+            try {
+                // Serialize with background summarization so a late summary cannot resurrect cleared context.
+                summaryMutex.withLock {
+                    container.database.chatMessageDao().clearSession(sessionId)
+                    container.database.memoryDao().deleteById("chat-summary-$sessionId")
+                }
+                if (deleteAndStartNew && activeSessionId == sessionId) {
+                    activateConversation(java.util.UUID.randomUUID().toString())
+                    chatCommandStatus = "Conversa excluída. O restante do histórico foi preservado."
+                } else {
+                    chatCommandStatus = "Conversa limpa. Memórias gerais e outras conversas foram preservadas."
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                chatCommandStatus = error.message ?: "Não foi possível alterar esta conversa."
+            }
+        }
     }
 
     fun submitMessage(
@@ -563,6 +618,23 @@ private fun ChatScreen(
     ) {
         val text = messageText.trim()
         if (text.isBlank() || sending) return
+        val command = ChatCommandParser.parse(text)
+        if (command != null) {
+            draft = ""
+            when (command.type) {
+                ChatCommandType.NEW -> startNewConversation()
+                ChatCommandType.CLEAR -> clearConversation(activeSessionId, deleteAndStartNew = false)
+                ChatCommandType.DELETE -> clearConversation(activeSessionId, deleteAndStartNew = true)
+                ChatCommandType.HELP -> chatCommandStatus = "Comandos: /new cria conversa; /clear limpa a atual; /delete exclui a atual; /chats lista conversas; /help mostra ajuda."
+                ChatCommandType.CHATS -> {
+                    conversationMenuExpanded = true
+                    chatCommandStatus = "Escolha uma conversa no menu acima."
+                }
+                ChatCommandType.UNKNOWN -> chatCommandStatus = "Comando desconhecido. Usa /help para ver os comandos disponíveis."
+            }
+            return
+        }
+        val targetSessionId = activeSessionId
         val submittedMessageId = existingUserMessageId ?: java.util.UUID.randomUUID().toString()
         recoveredOrphanMessageId = submittedMessageId
         onSendingChange(true)
@@ -572,16 +644,16 @@ private fun ChatScreen(
             try {
                 if (existingUserMessageId == null) {
                     container.database.chatMessageDao().insert(
-                        ChatMessageEntity(id = submittedMessageId, role = "user", content = text),
+                        ChatMessageEntity(id = submittedMessageId, sessionId = targetSessionId, role = "user", content = text),
                     )
                 }
                 val explicitMemory = chatMemoryManager.createExplicitMemory(text)
                 if (explicitMemory != null) container.database.memoryDao().upsertChatMemory(explicitMemory)
 
-                val history = container.database.chatMessageDao().latestConversation("main", 24)
+                val history = container.database.chatMessageDao().latestConversation(targetSessionId, 24)
                     .asReversed()
                     .map { AiMessage(it.role, it.content) }
-                val summary = container.database.memoryDao().chatSummary()
+                val summary = container.database.memoryDao().chatSummaryForSession(targetSessionId)
                 val memories = container.database.memoryDao().latestChatFacts(32)
                 val memoryContext = chatMemoryManager.buildPromptContext(text, summary, memories)
                 var repositoryContext = ""
@@ -625,7 +697,7 @@ private fun ChatScreen(
                     AiRequest(messages = listOf(AiMessage("system", systemPrompt)) + history, temperature = if (creatorMode) 0.65 else 0.3),
                 )
                 container.database.chatMessageDao().insert(
-                    ChatMessageEntity(role = "assistant", content = response.text, provider = response.providerName),
+                    ChatMessageEntity(sessionId = targetSessionId, role = "assistant", content = response.text, provider = response.providerName),
                 )
                 if (creatorMode) latestGeneratedContent = response.text
 
@@ -633,8 +705,8 @@ private fun ChatScreen(
                 requestScope.launch {
                     summaryMutex.withLock {
                         try {
-                            val previousSummary = container.database.memoryDao().chatSummary()
-                            val allTurns = container.database.chatMessageDao().latestConversation("main", 80)
+                            val previousSummary = container.database.memoryDao().chatSummaryForSession(targetSessionId)
+                            val allTurns = container.database.chatMessageDao().latestConversation(targetSessionId, 80)
                                 .asReversed()
                                 .dropLastWhile { it.role == "user" }
                             if (chatMemoryManager.shouldSummarize(previousSummary, allTurns)) {
@@ -658,12 +730,12 @@ private fun ChatScreen(
                                     val summaryText = summaryResponse.text.trim().take(3_200)
                                     if (summaryText.isNotBlank()) {
                                         val timestamp = transcript.last().createdAt
-                                        val storedSummary = container.database.memoryDao().chatSummary()
+                                        val storedSummary = container.database.memoryDao().chatSummaryForSession(targetSessionId)
                                         // A newer summary may have been committed by an earlier request in the queue.
                                         if (storedSummary == null || storedSummary.updatedAt <= timestamp) {
                                             container.database.memoryDao().upsertChatMemory(
                                                 MemoryEntity(
-                                                    id = "chat-summary-main",
+                                                    id = "chat-summary-$targetSessionId",
                                                     kind = "chat_summary",
                                                     title = "Resumo durável da conversa principal",
                                                     content = summaryText,
@@ -687,7 +759,7 @@ private fun ChatScreen(
                 throw cancelled
             } catch (error: Exception) {
                 container.database.chatMessageDao().insert(
-                    ChatMessageEntity(role = "assistant_error", content = error.message ?: "Não foi possível concluir a solicitação."),
+                    ChatMessageEntity(sessionId = targetSessionId, role = "assistant_error", content = error.message ?: "Não foi possível concluir a solicitação."),
                 )
             } finally {
                 onSendingChange(false)
@@ -717,11 +789,63 @@ private fun ChatScreen(
             )
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(onClick = { conversationMenuExpanded = true }, enabled = !sending, modifier = Modifier.weight(1f)) {
+                Text("Conversa: $currentConversationTitle", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            DropdownMenu(
+                expanded = conversationMenuExpanded,
+                onDismissRequest = { conversationMenuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Nova conversa") },
+                    onClick = { startNewConversation() },
+                    enabled = !sending,
+                )
+                conversations.take(20).forEach { conversation ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                conversation.title.lineSequence().firstOrNull().orEmpty().take(MAX_CONVERSATION_TITLE_CHARS) +
+                                    " · " + conversation.messageCount + " msgs",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        onClick = { activateConversation(conversation.sessionId) },
+                        enabled = !sending,
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Limpar conversa atual") },
+                    onClick = { clearConversation(activeSessionId, deleteAndStartNew = false) },
+                    enabled = !sending,
+                )
+                DropdownMenuItem(
+                    text = { Text("Excluir conversa atual") },
+                    onClick = { clearConversation(activeSessionId, deleteAndStartNew = true) },
+                    enabled = !sending,
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip(selected = !creatorMode, onClick = { creatorMode = false }, label = { Text("Chat") })
             FilterChip(selected = creatorMode, onClick = { creatorMode = true }, label = { Text("Modo Criador") })
+        }
+        if (chatCommandStatus.isNotBlank()) {
+            Text(
+                chatCommandStatus,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
         }
         if (creatorMode) {
             Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -810,8 +934,25 @@ private fun ChatScreen(
                 }
             }
         } else {
+            if (messages.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                val lastVisibleIndex = messages.lastIndex
+                                if (lastVisibleIndex >= 0) listState.animateScrollToItem(lastVisibleIndex)
+                            }
+                        },
+                    ) {
+                        Text("↓ Ir para a última mensagem")
+                    }
+                }
+            }
             LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 state = listState,
             ) {
