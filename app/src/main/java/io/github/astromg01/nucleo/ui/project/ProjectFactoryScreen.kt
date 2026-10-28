@@ -224,8 +224,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     message.contains("não há token de acesso válido", ignoreCase = true)
             }
             githubAccountLogin = null
+            if (authFailure) {
+                githubOAuthSession.clearRejectedCredentials()
+                githubBuildTokenAvailable = false
+            }
             githubStatus = if (authFailure) {
-                "A sessão GitHub foi encontrada no armazenamento, mas precisa de nova autorização: " + message
+                "O GitHub recusou a sessão salva; removi somente as credenciais inválidas, preservando a seleção de repositório. Reconecte a conta: " + message
             } else {
                 "O token está salvo, mas não consegui confirmar a conta no GitHub agora. Isso não prova que a conexão foi perdida: " + message
             }
