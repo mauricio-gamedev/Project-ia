@@ -1253,7 +1253,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     )
                     OutlinedButton(
                         onClick = { discardCurrentDraft(showStatus = true) },
-                        enabled = !exporting && !generating,
+                        enabled = !projectInteractionLocked,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Descartar rascunho e limpar staging")
@@ -1513,6 +1513,8 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     onClick = {
                                         val discard = repairCandidate
                                         repairCandidate = null
+                                        repairCandidateDraft = null
+                                        repairCandidateValidationIssues = emptyList()
                                         repairSummary = ""
                                         repairDiffs = emptyList()
                                         if (discard != null) {
