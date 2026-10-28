@@ -224,14 +224,14 @@ object AndroidProjectScaffold {
             else "${packageMatch.groupValues[1]}.${classMatch.groupValues[1]}"
         }
         val declaredLauncher = manifestContent?.let { source ->
-            Regex("""(?is)<activity\\b[^>]*>.*?</activity\\s*>""")
+            Regex("""(?is)<activity\b[^>]*>.*?</activity\s*>""")
                 .findAll(source)
                 .firstOrNull { block ->
                     block.value.contains("android.intent.action.MAIN") &&
                         block.value.contains("android.intent.category.LAUNCHER")
                 }?.value
         }?.let { block ->
-            Regex("""(?is)android:name\\s*=\\s*["']([^"']+)["']""")
+            Regex("""(?is)android:name\s*=\s*["']([^"']+)["']""")
                 .find(block.substringBefore(">"))?.groupValues?.get(1)
         }
         if (!declaredLauncher.isNullOrBlank()) {
