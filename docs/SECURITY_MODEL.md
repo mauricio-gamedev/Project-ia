@@ -1,41 +1,40 @@
-# Modelo inicial de segurança e privacidade
+# Security and Privacy Model
 
-## Dados protegidos
+## Protected data
 
-- Chave de API do provedor.
-- Conversas e memórias gravadas localmente.
-- Códigos e documentos no diretório escolhido pelo usuário.
-- URIs e permissões persistentes concedidas pelo Storage Access Framework.
+The application may handle provider API keys, GitHub OAuth access/refresh tokens, pending device authorization codes, local conversation history and memories, project metadata, user-selected folder URIs, generated source files, and remote-build artifacts.
 
-## Controles desta versão
+## Controls implemented
 
-- A chave de API é cifrada com AES/GCM/NoPadding; a chave AES fica no Android Keystore. A base de dados não armazena essa chave.
-- Backup Android é desativado para evitar exportar acidentalmente o banco e preferências cifradas.
-- HTTP puro é rejeitado na configuração dos provedores remotos.
-- A pasta de projeto é escolhida explicitamente pelo usuário; a permissão de leitura persistente fica limitada à pasta escolhida.
-- A exportação da Project Factory só ocorre após o usuário escolher uma pasta no Storage Access Framework e requer permissão de escrita para aquela árvore.
-- Nenhum snapshot é enviado para tarefa associada a projeto sem consentimento persistido.
-- A leitura do projeto é limitada a 5 níveis, 300 entradas visitadas, 18 trechos, 2.500 caracteres por arquivo e 16.000 caracteres de conteúdo total.
-- `.git`, `build`, `node_modules`, arquivos de ambiente, chaves, alguns arquivos de credenciais e outros artefatos são ignorados.
-- Instruções encontradas em arquivos são tratadas como conteúdo não confiável.
-- Os erros não registram cabeçalhos HTTP nem a chave de API.
+- Provider credentials and GitHub OAuth tokens are encrypted with AES-GCM using a key held by Android Keystore.
+- Android backup is disabled for the app to reduce accidental export of local databases and preferences.
+- Remote provider URLs are validated; cleartext HTTP is not allowed for remote endpoints. Any explicitly supported loopback use is separate from remote-service configuration.
+- Users explicitly select a folder or repository context. Folder permissions are scoped through Android's document-selection APIs.
+- A local project snapshot is not sent to a task's AI provider unless the user enabled project-context sharing for that task.
+- Chat source context is optional and requires an explicit choice for the message being sent.
+- Project Factory validates relative paths, detects traversal/conflicts, applies project/file limits, stages output privately, and calculates SHA-256 hashes for integrity checks.
+- Repository files and generated/model output are treated as untrusted data. The application does not use such data as system instructions.
+- HTTP errors are sanitized to avoid placing provider response bodies, authorization headers, or credentials in UI messages/logs.
+- Remote build operations require consent and use a separately selected private repository.
 
-## Limitações conhecidas
+## GitHub OAuth scope warning
 
-- Padrões de redação não detectam todo segredo possível. Antes de vincular qualquer projeto a uma API externa, o usuário deve confirmar que pode compartilhar o código.
-- Provedores remotos recebem os prompts/memórias enviados pelo aplicativo e podem processar ou reter esses dados segundo seus próprios termos.
-- A Project Factory valida manifestos, bloqueia caminhos de traversal, detecta caminhos duplicados/conflitos e bloqueia nomes/extensões comuns de segredos; os arquivos ficam em staging privado até o usuário exportar.
-- A exportação usa uma nova pasta e não sobrescreve arquivos deliberadamente; se falhar, tenta remover somente os documentos criados nessa operação. A reversão depende do suporte do provedor de documentos.
-- Não existe sandbox para execução de código porque execução de comandos ainda não foi implementada. Os projetos gerados não são executados nem compilados por esta alfa.
-- O app ainda não oferece bloqueio biométrico, exportação/remoção seletiva de todo o histórico, política avançada por provedor ou gestão de múltiplas chaves.
-- O uso de Android Keystore protege a chave em repouso, mas não protege contra um dispositivo desbloqueado comprometido ou exploração dentro do próprio app.
+The OAuth Device Flow currently requests \`repo\`, \`workflow\`, and \`offline_access\`. These are broad account-level scopes for repositories and workflows accessible to the user. Selecting one repository in the UI limits what this particular action attempts to read/write; it does **not** restrict the OAuth token to that repository. Review the GitHub consent screen and revoke the application from GitHub Settings when access is no longer needed. A future broadly distributed version should prefer a GitHub App with granular repository permissions.
 
-## Requisitos antes de habilitar escrita ou shell
+## Data sent to remote services
 
-- Raiz de projeto explícita e verificada para toda operação.
-- Preview de diff antes de alterações sensíveis.
-- Bloqueio de traversal (`..`) e de destinos fora da raiz.
-- Execução em ambiente isolado e sem permissões desnecessárias.
-- Lista allowlist de ferramentas, timeout, limite de CPU/memória, limites de tentativas e cancelamento.
-- Nenhum acesso a credenciais ou rede externa concedido automaticamente a processos de build/teste.
-- Logs sem secrets, comandos com argumentos sensíveis mascarados e caminho para reverter alterações.
+When remote inference is used, the configured AI provider receives the prompt and messages included in that request. This may include the durable conversation summary and selected local memories. If the user enables repository context, a limited source tree and selected source snippets may also be included. Remote provider retention and processing are governed by that provider's terms and settings.
+
+The GitHub connector communicates with GitHub's API to authorize the session, list repositories, and read selected files. A remote build sends the generated project ZIP and build-workflow files to the selected private build repository and runs the authorized workflow there.
+
+## Limitations
+
+- Secret-pattern filtering cannot detect every credential, private key, or sensitive datum. Review source before sharing it with an external service.
+- Android Keystore protects stored secrets, but it does not make a compromised device or a maliciously modified app safe.
+- Project validation is not a general-purpose security audit and does not prove generated code is correct.
+- Remote build success proves the configured build pipeline completed and the artifact passed its checks; it does not prove the app is bug-free, safe, or production-ready.
+- The application is an alpha. Biometric lock, fine-grained token permissions, a complete data-export/deletion interface, and an isolated arbitrary-code execution environment are not currently implemented.
+
+## Reporting issues
+
+Do not disclose vulnerabilities or credentials in public Issues. Follow [SECURITY.md](../SECURITY.md) for responsible reporting.
