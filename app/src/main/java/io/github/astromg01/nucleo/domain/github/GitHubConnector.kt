@@ -462,7 +462,6 @@ class GitHubOAuthSession(
 ) {
     private val preferences = context.getSharedPreferences("github_connector_session", Context.MODE_PRIVATE)
     private val connectorPreferences = GitHubConnectorPreferences(context)
-    private val refreshMutex = Mutex()
 
     @Synchronized
     fun save(tokens: GitHubOAuthTokens) {
@@ -503,5 +502,6 @@ class GitHubOAuthSession(
         const val GITHUB_OAUTH_REFRESH_TOKEN_ID = "github_oauth_refresh_token"
         private const val KEY_ACCESS_EXPIRY = "access_expires_at"
         private const val REFRESH_EARLY_MILLIS = 2 * 60 * 1_000L
+        private val refreshMutex = Mutex()
     }
 }
