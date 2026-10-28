@@ -114,7 +114,7 @@ object ProjectGenerationValidator {
             val next = content.getOrNull(index + 1)
             when (state) {
                 ScanState.NORMAL -> {
-                    if (current == '/' && next == '/') {
+                    if (current == '/' && next == '/' && extension != "css") {
                         state = ScanState.LINE_COMMENT
                         index += 2
                         continue
