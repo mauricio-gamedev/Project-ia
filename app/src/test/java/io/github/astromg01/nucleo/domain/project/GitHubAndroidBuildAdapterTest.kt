@@ -32,6 +32,18 @@ class GitHubAndroidBuildAdapterTest {
         verifyPublishedApkChecksum(expectedChecksum = digest.uppercase(), actualChecksum = digest)
     }
 
+    @Test
+    fun sanitizesBuildLogsBeforeTheyCanBeSentToTheRepairModel() {
+        val githubToken = "gho_" + "A".repeat(32)
+        val raw = "e: app/src/main/java/MainActivity.kt:12: unresolved reference; token=" + githubToken
+
+        val safe = sanitizeBuildDiagnostics(raw)
+
+        assertTrue(safe.contains("unresolved reference"))
+        assertTrue(safe.contains("[REDACTED]"))
+        assertTrue(!safe.contains(githubToken))
+    }
+
     private fun expectIOException(expectedMessage: String, action: () -> Unit) {
         try {
             action()
