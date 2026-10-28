@@ -421,11 +421,24 @@ class GitHubAndroidBuildAdapter(
                 }
             }
             val bytes = archive.toByteArray()
+            if (bytes.isEmpty()) return "O GitHub retornou um log vazio para o job $jobId."
+
+            // The Actions API normally returns a ZIP archive. Some gateways/proxies can
+            // return decoded plain text instead; don't pass that text into ZipInputStream.
+            val isZipArchive = bytes.size >= 4 &&
+                bytes[0] == 'P'.code.toByte() &&
+                bytes[1] == 'K'.code.toByte()
+            if (!isZipArchive) {
+                return bytes.toString(Charsets.UTF_8).takeLast(MAX_RAW_LOG_CHARS)
+            }
+
             val combined = StringBuilder()
+            var foundEntry = false
             try {
                 ZipInputStream(bytes.inputStream()).use { zip ->
                     while (combined.length < MAX_RAW_LOG_CHARS) {
                         val entry = zip.nextEntry ?: break
+                        foundEntry = true
                         if (!entry.isDirectory) {
                             combined.appendLine("LOG: " + entry.name.take(160))
                             val entryBytes = readZipEntryAtMost(zip, MAX_BYTES_PER_LOG_ENTRY)
@@ -436,13 +449,15 @@ class GitHubAndroidBuildAdapter(
                     }
                 }
             } catch (_: java.util.zip.ZipException) {
-                // Some gateways may return the decoded text rather than a ZIP archive.
-                return bytes.toString(Charsets.UTF_8).take(MAX_RAW_LOG_CHARS)
+                return "O GitHub retornou um arquivo de log ZIP inválido para o job $jobId."
             }
-            return combined.toString().take(MAX_RAW_LOG_CHARS)
+            if (!foundEntry) {
+                return "O GitHub retornou um arquivo de log ZIP sem entradas para o job $jobId."
+            }
+            // Build/compiler errors tend to be near the end; preserve the tail when limiting.
+            return combined.toString().takeLast(MAX_RAW_LOG_CHARS)
         }
     }
-
     private suspend fun ensureWorkflow(target: GitHubBuildRepository, token: String) {
         val url = apiUrl("repos", target.owner, target.name, "contents", ".github", "workflows", WORKFLOW_FILE)
             .newBuilder()
