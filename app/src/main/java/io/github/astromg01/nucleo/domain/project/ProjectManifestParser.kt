@@ -54,7 +54,6 @@ object ProjectManifestParser {
         }
 
         val draft = ProjectDraft(name = name, profile = profile, description = description, files = files)
-        ProjectFactory().validate(draft)
         return draft
     }
 }
