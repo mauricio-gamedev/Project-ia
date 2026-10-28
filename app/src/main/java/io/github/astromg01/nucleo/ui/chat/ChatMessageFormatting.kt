@@ -12,21 +12,35 @@ import androidx.compose.ui.unit.sp
 
 /**
  * Lightweight, safe Markdown presentation for chat text. It deliberately renders content as text
- * instead of interpreting HTML or remote resources.
+ * instead of interpreting HTML or loading remote resources.
  */
 internal fun formatChatMarkdown(
     markdown: String,
     headingColor: Color = Color(0xFFC6B9FF),
+    codeBackground: Color = Color(0xFF202027),
+    codeForeground: Color = Color(0xFFF7F7FA),
 ): AnnotatedString {
     val lines = markdown.split('\n')
     return buildAnnotatedString {
         var inCodeBlock = false
+        var codeFenceLength = 0
         var hasRenderedLine = false
 
         lines.forEach { rawLine ->
-            if (rawLine.trimStart().startsWith("```")) {
-                inCodeBlock = !inCodeBlock
-                return@forEach
+            val trimmed = rawLine.trimStart()
+            val openingFenceLength = trimmed.takeWhile { it == '\u0060' }.length
+            if (openingFenceLength >= 3) {
+                val fenceSuffix = trimmed.drop(openingFenceLength)
+                if (!inCodeBlock && !fenceSuffix.contains('\u0060')) {
+                    inCodeBlock = true
+                    codeFenceLength = openingFenceLength
+                    return@forEach
+                }
+                if (inCodeBlock && openingFenceLength >= codeFenceLength && fenceSuffix.isBlank()) {
+                    inCodeBlock = false
+                    codeFenceLength = 0
+                    return@forEach
+                }
             }
 
             if (hasRenderedLine) append('\n')
@@ -36,7 +50,8 @@ internal fun formatChatMarkdown(
                 withStyle(
                     SpanStyle(
                         fontFamily = FontFamily.Monospace,
-                        background = Color(0xFF202027),
+                        color = codeForeground,
+                        background = codeBackground,
                     ),
                 ) {
                     append(rawLine)
@@ -48,13 +63,9 @@ internal fun formatChatMarkdown(
             var line = if (heading != null) rawLine.removePrefix(heading) else rawLine
             if (heading != null) {
                 withStyle(
-                    SpanStyle(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = headingColor,
-                    ),
+                    SpanStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp, color = headingColor),
                 ) {
-                    appendInlineMarkdown(line)
+                    appendInlineMarkdown(line, codeBackground, codeForeground)
                 }
                 return@forEach
             }
@@ -65,33 +76,53 @@ internal fun formatChatMarkdown(
                 append("• ")
                 line = line.removeRange(0, bullet.value.length)
             }
-            appendInlineMarkdown(line)
+            appendInlineMarkdown(line, codeBackground, codeForeground)
         }
     }
 }
 
-private fun AnnotatedString.Builder.appendInlineMarkdown(text: String) {
+private fun AnnotatedString.Builder.appendInlineMarkdown(
+    text: String,
+    codeBackground: Color,
+    codeForeground: Color,
+) {
     var index = 0
     while (index < text.length) {
+        // Preserve escaped Markdown punctuation as literal text.
+        if (text[index] == '\\' && index + 1 < text.length &&
+            (text[index + 1] in "\\*_{}[]()#+-.!>" || text[index + 1] == '\u0060')
+        ) {
+            append(text[index + 1])
+            index += 2
+            continue
+        }
+
         val token = when {
             text.startsWith("**", index) -> "**"
             text.startsWith("__", index) -> "__"
             text[index] == '*' -> "*"
-            text[index] == '_' -> "_"
-            text[index] == '`' -> "`"
+            text[index] == '_' && (index == 0 || !text[index - 1].isLetterOrDigit()) -> "_"
+            text[index] == '\u0060' -> "\u0060"
             else -> null
         }
 
         val close = token?.let { text.indexOf(it, index + it.length) } ?: -1
-        if (token != null && close > index + token.length) {
+        val underscoreDelimiter = token == "_" || token == "__"
+        val closingBoundaryValid = !underscoreDelimiter ||
+            close < 0 ||
+            close + token!!.length >= text.length ||
+            !text[close + token.length].isLetterOrDigit()
+
+        if (token != null && close > index + token.length && closingBoundaryValid) {
             val value = text.substring(index + token.length, close)
             when (token) {
                 "**", "__" -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(value) }
                 "*", "_" -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(value) }
-                "`" -> withStyle(
+                "\u0060" -> withStyle(
                     SpanStyle(
                         fontFamily = FontFamily.Monospace,
-                        background = Color(0xFF202027),
+                        color = codeForeground,
+                        background = codeBackground,
                     ),
                 ) { append(value) }
             }
