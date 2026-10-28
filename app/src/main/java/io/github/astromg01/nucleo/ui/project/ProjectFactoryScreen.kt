@@ -129,6 +129,9 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
     var buildStatus by remember { mutableStateOf("") }
+    var buildFailureDiagnostics by remember { mutableStateOf("") }
+    var buildFailureRunUrl by remember { mutableStateOf("") }
+    var repairingBuild by remember { mutableStateOf(false) }
     var builtApk by remember { mutableStateOf<BuiltAndroidArtifact?>(null) }
     var visibleFileLimit by remember { mutableStateOf(MAX_VISIBLE_FILES) }
     var previewFile by remember { mutableStateOf<StagedFileEvidence?>(null) }
@@ -848,6 +851,8 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     else -> {
                                         buildingApk = true
                                         builtApk = null
+                                        buildFailureDiagnostics = ""
+                                        buildFailureRunUrl = ""
                                         buildStatus = "Preparando build remoto…"
                                         scope.launch {
                                             try {
@@ -866,6 +871,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled
                                             } catch (error: Exception) {
+                                                if (error is io.github.astromg01.nucleo.domain.project.AndroidBuildFailureException) {
+                                                    buildFailureDiagnostics = error.diagnostics
+                                                    buildFailureRunUrl = error.runUrl
+                                                } else {
+                                                    buildFailureDiagnostics = ""
+                                                    buildFailureRunUrl = ""
+                                                }
                                                 buildStatus = error.message ?: "Não foi possível compilar o APK."
                                             } finally {
                                                 buildingApk = false
@@ -918,10 +930,128 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 buildStatus,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
-                                    buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
-                                    buildStatus.startsWith("Falha")) MaterialTheme.colorScheme.error
+                                    buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("O Gradle") ||
+                                    buildStatus.startsWith("A sessão") || buildStatus.startsWith("Não foi") ||
+                                    buildStatus.startsWith("Falha") || buildStatus.startsWith("Nenhuma sessão"))
+                                    MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.secondary,
                             )
+                        }
+                        if (buildFailureRunUrl.isNotBlank()) {
+                            TextButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(buildFailureRunUrl)))
+                                    }.onFailure {
+                                        buildStatus = "Não foi possível abrir a execução do GitHub Actions."
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Abrir log completo do Gradle") }
+                        }
+                        if (buildFailureDiagnostics.isNotBlank()) {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Erros principais da compilação", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                    SelectionContainer {
+                                        Text(
+                                            buildFailureDiagnostics.take(2_400),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                        )
+                                    }
+                                    Text(
+                                        "A correção assistida vai enviar o fonte atual e esses diagnósticos ao provedor de IA; ela não executa os arquivos.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Button(
+                                        enabled = !repairingBuild && !buildingApk && !generating && repairCandidate == null,
+                                        onClick = {
+                                            if (!reviewConsent) {
+                                                status = "Ative o consentimento de análise/correção por IA antes de enviar o fonte e os erros do Gradle."
+                                                statusIsError = true
+                                            } else {
+                                                val originalDraft = currentDraft
+                                                if (originalDraft == null) {
+                                                    status = "O fonte completo desse rascunho não está disponível no estado atual. Gere novamente ou abra o rascunho original antes de corrigir."
+                                                    statusIsError = true
+                                                } else {
+                                                    repairingBuild = true
+                                                    status = "Preparando uma proposta de correção a partir dos erros do Gradle…"
+                                                    statusIsError = false
+                                                    val diagnostics = buildFailureDiagnostics
+                                                    val runUrl = buildFailureRunUrl
+                                                    scope.launch {
+                                                        try {
+                                                            val repairIssues = listOf(
+                                                                "A compilação Android falhou no GitHub Actions. URL da execução: " + runUrl,
+                                                                diagnostics,
+                                                            ).filter { it.isNotBlank() }
+                                                            val repair = ProjectGenerationRepairService().repairOnce(
+                                                                originalDraft,
+                                                                repairIssues,
+                                                            ) { repairRequest ->
+                                                                try {
+                                                                    container.modelRouter.generate(repairRequest)
+                                                                } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                                                    if (error.statusCode == 400 && repairRequest.jsonObjectMode) {
+                                                                        container.modelRouter.generate(repairRequest.copy(jsonObjectMode = false))
+                                                                    } else {
+                                                                        throw error
+                                                                    }
+                                                                }
+                                                            }
+                                                            val completedDraft = AndroidProjectScaffold.complete(repair.draft).draft
+                                                            val candidateIssues = ProjectGenerationValidator.validate(completedDraft)
+                                                            val originalByPath = originalDraft.files.associateBy { it.path }
+                                                            val candidateDiffs = completedDraft.files.mapNotNull { changed ->
+                                                                val original = originalByPath[changed.path]
+                                                                if (original == null || original.content != changed.content) {
+                                                                    ProjectRepairDiffEntry(changed.path, original?.content.orEmpty(), changed.content)
+                                                                } else {
+                                                                    null
+                                                                }
+                                                            }
+                                                            val candidate = withContext(Dispatchers.IO) {
+                                                                ProjectFactory().stage(completedDraft, stagingRoot)
+                                                            }
+                                                            repairCandidate = candidate
+                                                            repairCandidateDraft = completedDraft
+                                                            repairCandidateValidationIssues = candidateIssues
+                                                            repairSummary = buildString {
+                                                                append("Correção proposta por IA com base nos erros do Gradle. ")
+                                                                append(repair.summary)
+                                                                if (candidateIssues.isEmpty()) {
+                                                                    append(" A validação estática passou; é obrigatório executar o Gradle novamente para confirmar.")
+                                                                } else {
+                                                                    append(" Ainda restam ")
+                                                                    append(candidateIssues.size)
+                                                                    append(" problema(s) estruturais; o build seguirá bloqueado.")
+                                                                }
+                                                            }
+                                                            repairDiffs = candidateDiffs
+                                                            status = "Proposta de correção criada em staging separado; o fonte ativo não foi alterado. Revise o diff antes de aplicar."
+                                                            statusIsError = candidateIssues.isNotEmpty()
+                                                        } catch (cancelled: CancellationException) {
+                                                            throw cancelled
+                                                        } catch (error: Exception) {
+                                                            status = error.message ?: "A IA não conseguiu propor uma correção para os erros do Gradle."
+                                                            statusIsError = true
+                                                        } finally {
+                                                            repairingBuild = false
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        if (repairingBuild) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                                        else Text("Propor correção com IA a partir do Gradle")
+                                    }
+                                }
+                            }
                         }
                     }
                     staged.files.take(visibleFileLimit).forEach { file ->
