@@ -155,7 +155,9 @@ object AndroidProjectScaffold {
     }
 
     private fun packageSlug(name: String): String {
-        var slug = name.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(24)
+        var slug = name.lowercase(Locale.ROOT)
+            .filter { it in 'a'..'z' || it in '0'..'9' }
+            .take(24)
         if (slug.isBlank()) slug = "app"
         if (slug.first().isDigit()) slug = "app$slug"
         return slug
