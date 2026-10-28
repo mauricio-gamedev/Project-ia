@@ -163,11 +163,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     }
 
     LaunchedEffect(githubSyncTick) {
+        if (generating || buildingApk || verifyingBuildTarget || repairingBuild) return@LaunchedEffect
+
         val storedToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
         githubBuildTokenAvailable = storedToken
         selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
         if (!storedToken) {
-            githubAccountLogin = null
             githubAccountLogin = null
             buildStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
             return@LaunchedEffect
@@ -186,31 +187,43 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             val repository = githubConnectorPreferences.selectedBuildRepository()
             selectedBuildRepository = repository
             if (repository == null) {
-                buildStatus = "Conta GitHub confirmada como @" + login + ", mas falta escolher um repositório privado dedicado à compilação. A seleção do chat é separada."
+                buildStatus = "Conta GitHub confirmada como @" + login +
+                    ", mas falta escolher um repositório privado dedicado à compilação. A seleção do chat é separada."
             } else {
-                val target = GitHubAndroidBuildAdapter(context).verifyRepository(
-                    repository.owner,
-                    repository.name,
-                    token,
-                )
-                buildStatus = "Conta @" + login + " confirmada · repositório de build " +
-                    target.owner + "/" + target.name + " validado (privado e com escrita)."
+                try {
+                    val target = GitHubAndroidBuildAdapter(context).verifyRepository(
+                        repository.owner,
+                        repository.name,
+                        token,
+                    )
+                    buildStatus = "Conta @" + login + " confirmada · repositório de build " +
+                        target.owner + "/" + target.name + " validado (privado e com escrita)."
+                } catch (repositoryError: CancellationException) {
+                    throw repositoryError
+                } catch (repositoryError: Exception) {
+                    buildStatus = "Conta @" + login + " autenticada, mas o repositório de build não está pronto: " +
+                        (repositoryError.message ?: "não foi possível validar privacidade e permissão de escrita.")
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            // A stored token and a verified live session are separate states. Keep the stored-session
-            // indicator unless GitHub specifically reports an authentication failure.
-            val message = error.message ?: "Não foi possível validar a sessão GitHub."
-            val authFailure = message.contains("token", ignoreCase = true) ||
-                message.contains("sessão", ignoreCase = true) ||
-                message.contains("reconecte", ignoreCase = true) ||
-                message.contains("401")
+            val message = error.message ?: "Não foi possível confirmar a conta no GitHub agora."
+            val authFailure = when (error) {
+                is io.github.astromg01.nucleo.domain.github.GitHubConnector.GitHubConnectorException ->
+                    error.statusCode == 401
+                is io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter.GitHubBuildException ->
+                    error.statusCode == 401
+                else -> message.contains("reconecte", ignoreCase = true) ||
+                    message.contains("sessão GitHub expirou", ignoreCase = true) ||
+                    message.contains("bad_refresh_token", ignoreCase = true) ||
+                    message.contains("não há token de acesso válido", ignoreCase = true)
+            }
             if (authFailure) githubAccountLogin = null
             buildStatus = if (authFailure) {
-                "A sessão GitHub foi encontrada no armazenamento, mas não está válida: " + message
+                "A sessão GitHub foi encontrada no armazenamento, mas precisa de nova autorização: " + message
             } else {
-                "O token GitHub está salvo, mas não consegui confirmar a conta/repositório agora: " + message
+                "O token está salvo, mas não consegui confirmar a conta no GitHub agora. Isso não prova que a conexão foi perdida: " + message
             }
         } finally {
             syncingGitHub = false
