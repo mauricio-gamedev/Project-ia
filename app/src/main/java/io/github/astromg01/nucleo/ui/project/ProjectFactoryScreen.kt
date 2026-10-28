@@ -148,6 +148,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var repairCandidate by remember { mutableStateOf<StagedProject?>(null) }
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
+    var repairReadinessIssues by remember { mutableStateOf<List<String>>(emptyList()) }
 
     suspend fun syncGitHubIntegration(showStatus: Boolean) {
         selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
@@ -217,6 +218,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         reviewReport = null
         repairSummary = ""
         repairDiffs = emptyList()
+        repairReadinessIssues = emptyList()
         reviewingCode = false
         proposingRepair = false
         if (candidate != null) {
@@ -1082,7 +1084,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         val snapshot = withContext(Dispatchers.IO) {
                                             reviewer.collectSources(
                                                 stagedForReview,
-                                                maxFiles = 8,
+                                                maxFiles = 24,
                                                 maxCharsPerFile = ProjectFactory.MAX_PREVIEW_CHARS,
                                                 totalChars = 30_000,
                                             )
@@ -1185,17 +1187,27 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                                     val updatedFiles = currentSnapshot.files.map { original ->
                                                         replacements[original.path] ?: original
                                                     }
-                                                    val candidate = withContext(Dispatchers.IO) {
-                                                        ProjectFactory().stage(
-                                                            ProjectDraft(
-                                                                name = currentStaged.name,
-                                                                profile = currentStaged.profile,
-                                                                description = description.trim(),
-                                                                files = updatedFiles,
-                                                            ),
-                                                            stagingRoot,
-                                                        )
+                                                    val repairedDraft = ProjectDraft(
+                                                        name = currentStaged.name,
+                                                        profile = currentStaged.profile,
+                                                        description = description.trim(),
+                                                        files = updatedFiles,
+                                                    )
+                                                    val repairScaffold = if (repairedDraft.profile == ProjectProfile.ANDROID_APP) {
+                                                        AndroidProjectScaffold.complete(repairedDraft)
+                                                    } else {
+                                                        null
                                                     }
+                                                    val completedRepairDraft = repairScaffold?.draft ?: repairedDraft
+                                                    val readiness = ProjectSourceIntegrityValidator.inspect(completedRepairDraft).toMutableList()
+                                                    if (repairScaffold?.defaultLauncherAdded == true) {
+                                                        readiness += "A proposta ainda não contém uma Activity funcional; o scaffold precisou criar uma tela de contingência."
+                                                    }
+                                                    ProjectFactory().validate(completedRepairDraft)
+                                                    val candidate = withContext(Dispatchers.IO) {
+                                                        ProjectFactory().stage(completedRepairDraft, stagingRoot)
+                                                    }
+                                                    repairReadinessIssues = readiness.distinct().take(20)
                                                     repairCandidate = candidate
                                                     repairSummary = proposal.summary
                                                     repairDiffs = changedFiles
@@ -1252,12 +1264,18 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     onClick = {
                                         val previous = stagedProject
                                         stagedProject = candidate
+                                        projectReadinessIssues = repairReadinessIssues
                                         repairCandidate = null
                                         reviewSnapshot = null
                                         reviewReport = null
                                         repairSummary = ""
                                         repairDiffs = emptyList()
-                                        status = "Rascunho corrigido aplicado como nova revisão. O projeto original foi preservado até a confirmação; o código ainda não foi executado."
+                                        repairReadinessIssues = emptyList()
+                                        status = if (projectReadinessIssues.isEmpty()) {
+                                            "Rascunho corrigido aplicado como nova revisão. O scaffold foi sincronizado novamente e a pré-validação passou; o código ainda não foi compilado."
+                                        } else {
+                                            "A proposta foi aplicada e o scaffold sincronizado, mas ainda restam ${projectReadinessIssues.size} bloqueio(s). A compilação continua desabilitada."
+                                        }
                                         statusIsError = false
                                         if (previous != null) {
                                             scope.launch {
@@ -1281,6 +1299,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         repairCandidate = null
                                         repairSummary = ""
                                         repairDiffs = emptyList()
+                                        repairReadinessIssues = emptyList()
                                         if (discard != null) {
                                             scope.launch {
                                                 try {
