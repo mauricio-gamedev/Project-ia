@@ -35,7 +35,7 @@
 5. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
 6. Route the request to a configured AI provider within its context budget.
 7. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
-   The remote AutoRouter caps one provider route at 40 seconds and the whole remote request at 90 seconds. Compatibility retries share the same remaining route and global budgets. Chat rendering uses safe text-only Markdown styling, selectable text, and explicit copy controls.
+   Provider request timeouts retain the previous behavior to avoid cutting off slow model queues. When the user changes the primary provider, endpoint, model, or API key, stale cooldown state for that route is cleared. Chat rendering uses safe text-only Markdown styling, selectable text, and explicit copy controls.
 8. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
 
 ## GitHub authorization flow
