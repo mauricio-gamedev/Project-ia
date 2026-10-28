@@ -1396,7 +1396,7 @@ private fun SettingsScreen(container: AppContainer) {
                         FeatureLine("Histórico, projetos e memórias ficam no banco local do app.")
                         FeatureLine("Quando usa API, mensagens selecionadas são enviadas ao provedor escolhido.")
                         FeatureLine("A aplicação não promete processamento infinito nem contorna cotas de provedores.")
-                        FeatureLine("Nesta versão, o agente não executa comandos nem modifica arquivos de projeto.")
+                        FeatureLine("O chat não executa comandos arbitrários nem escreve em repositórios; builds remotos são ações separadas, com consentimento explícito.")
                     }
                 }
             }
