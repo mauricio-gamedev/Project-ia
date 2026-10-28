@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/mauricio-gamedev/Project-ia/actions/workflows/android-ci.yml"><img alt="Android CI" src="https://github.com/mauricio-gamedev/Project-ia/actions/workflows/android-ci.yml/badge.svg?branch=main"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.7.1--alpha-orange">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.8.1--alpha-orange">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Android-green">
   <img alt="Language" src="https://img.shields.io/badge/language-Kotlin-purple">
   <img alt="License" src="https://img.shields.io/badge/license-All%20rights%20reserved-lightgrey">
