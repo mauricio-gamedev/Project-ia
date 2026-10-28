@@ -75,6 +75,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -126,7 +127,7 @@ class MainActivity : ComponentActivity() {
 private fun NucleoShell(container: AppContainer) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var screen by remember { mutableStateOf(AppScreen.HOME) }
+    var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
     var chatSending by remember { mutableStateOf(false) }
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
