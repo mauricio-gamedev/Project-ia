@@ -20,24 +20,21 @@ class ProjectSourceIntegrityValidatorTest {
 
     @Test
     fun ignoresDelimitersInsideStringsCommentsAndKotlinRawStrings() {
+        val tripleQuote = "\"\"\""
+        val source = listOf(
+            "class MainActivity {",
+            "    val text = \" } ] ) \"",
+            "    val raw = $tripleQuote { this is text, not a block $tripleQuote",
+            "    // } ] )",
+            "    /* outer { /* nested } */ still comment */",
+            "    fun run() { println(text) }",
+            "}",
+        ).joinToString("\n")
         val issues = ProjectSourceIntegrityValidator.inspect(
             ProjectDraft(
                 name = "Valid",
                 profile = ProjectProfile.ANDROID_APP,
-                files = listOf(
-                    GeneratedProjectFile(
-                        "app/src/main/java/example/MainActivity.kt",
-                        """
-                            class MainActivity {
-                                val text = " } ] ) "
-                                val raw = """ { this is text, not a block """
-                                // } ] )
-                                /* outer { /* nested } */ still comment */
-                                fun run() { println(text) }
-                            }
-                        """.trimIndent(),
-                    ),
-                ),
+                files = listOf(GeneratedProjectFile("app/src/main/java/example/MainActivity.kt", source)),
             ),
         )
 
