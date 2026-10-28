@@ -53,6 +53,8 @@ fun GitHubConnectorCard(container: AppContainer) {
     val session = remember(context) { GitHubOAuthSession(context, container.secretStore, connector) }
     var clientId by remember { mutableStateOf(preferences.clientId()) }
     var connected by remember { mutableStateOf(session.hasStoredAccessToken()) }
+    var sessionVerified by remember { mutableStateOf(false) }
+    var accountLogin by remember { mutableStateOf<String?>(null) }
     var repositories by remember { mutableStateOf<List<GitHubRepository>>(emptyList()) }
     var selected by remember { mutableStateOf(preferences.selectedRepository()) }
     var selectedBuild by remember { mutableStateOf(preferences.selectedBuildRepository()) }
@@ -66,11 +68,15 @@ fun GitHubConnectorCard(container: AppContainer) {
 
     suspend fun refresh() {
         val token = session.validAccessToken()
-            ?: throw java.io.IOException("Conecte sua conta GitHub para carregar os repositórios.")
+            ?: throw java.io.IOException("Nenhuma sessão OAuth GitHub válida foi encontrada. Conecte a conta para carregar os repositórios.")
+        val login = connector.authenticatedUserLogin(token)
+        accountLogin = login
+        sessionVerified = true
+        connected = true
         repositories = connector.listRepositories(token)
         selected = preferences.selectedRepository()
         selectedBuild = preferences.selectedBuildRepository()
-        status = "Conexão GitHub pronta · ${repositories.size} repositórios carregados."
+        status = "Conta GitHub @${login} validada · ${repositories.size} repositórios carregados."
     }
 
     suspend fun waitForDeviceAuthorization(authorization: GitHubDeviceAuthorization) {
@@ -231,7 +237,15 @@ fun GitHubConnectorCard(container: AppContainer) {
                     }
                 }
             } else {
-                Text("Conta GitHub conectada", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Medium)
+                Text(
+                when {
+                    sessionVerified && !accountLogin.isNullOrBlank() -> "Conta GitHub validada como @${accountLogin}."
+                    connected -> "Credencial salva; a conta ainda precisa ser validada."
+                    else -> "Conta GitHub não conectada."
+                },
+                color = if (sessionVerified) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Medium,
+            )
                 Text("Repositório de contexto do chat", style = MaterialTheme.typography.labelLarge)
                 OutlinedButton(onClick = { contextMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(selected?.fullName ?: "Escolher repositório para o chat", maxLines = 1)
@@ -296,8 +310,11 @@ fun GitHubConnectorCard(container: AppContainer) {
                 TextButton(enabled = !busy, onClick = {
                     session.disconnect()
                     connected = false
+                    sessionVerified = false
+                    accountLogin = null
                     deviceAuthorization = null
                     selected = null
+                    selectedBuild = null
                     repositories = emptyList()
                     status = "Token removido deste dispositivo. Para revogar a autorização, acesse GitHub → Settings → Applications."
                 }) { Text("Desconectar neste dispositivo") }
