@@ -551,12 +551,21 @@ class GitHubOAuthSession(
         }
     }
 
+    /**
+     * Clear rejected/expired credentials while preserving the user's repository choices so a
+     * fresh Device Flow authorization can reconnect without forcing the selections to be made again.
+     */
     @Synchronized
-    fun disconnect() {
+    fun clearRejectedCredentials() {
         secretStore.removeApiKey(GITHUB_OAUTH_TOKEN_ID)
         secretStore.removeApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
         clearPendingAuthorization()
         preferences.edit().remove(KEY_ACCESS_EXPIRY).apply()
+    }
+
+    @Synchronized
+    fun disconnect() {
+        clearRejectedCredentials()
         connectorPreferences.clearSelectedRepository()
     }
 
