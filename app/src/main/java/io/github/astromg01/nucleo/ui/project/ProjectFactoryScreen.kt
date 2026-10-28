@@ -1205,6 +1205,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                                     if (repairScaffold?.defaultLauncherAdded == true) {
                                                         readiness += "A proposta ainda não contém uma Activity funcional; o scaffold precisou criar uma tela de contingência."
                                                     }
+                                                    val fallbackStillShowsPlaceholder = completedRepairDraft.files.any { file ->
+                                                        file.path == "app/src/main/java/io/github/nucleo/generated/NucleoLauncherActivity.kt" &&
+                                                            file.content.contains("A funcionalidade específica ainda precisa de implementação")
+                                                    }
+                                                    if (fallbackStillShowsPlaceholder) {
+                                                        readiness += "A Activity de contingência ainda contém o placeholder e não demonstra a funcionalidade solicitada."
+                                                    }
                                                     ProjectFactory().validate(completedRepairDraft)
                                                     val candidate = withContext(Dispatchers.IO) {
                                                         ProjectFactory().stage(completedRepairDraft, stagingRoot)
