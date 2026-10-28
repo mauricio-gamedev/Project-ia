@@ -38,7 +38,7 @@ Gerar a fonte de um projeto Android e produzir um APK instalável são etapas di
 O Android será o ambiente de controle principal. O subsistema deve expor adaptadores de build para:
 
 - **Local**, apenas depois de escolher e validar uma toolchain compatível com Android e o dispositivo-alvo; não presumir que executar Gradle diretamente no processo Android funciona.
-- **Build remoto opcional (implementado para Android)**, via GitHub Actions num repositório privado dedicado selecionado pelo Conector GitHub OAuth, somente depois de configurar a autorização e consentir no envio do código e na execução dos scripts Gradle.
+- **Build remoto opcional (implementado para Android)**, via GitHub Actions usando a mesma sessão OAuth, mas uma seleção separada de repositório privado dedicado ao build; exige consentimento para envio do código e execução de scripts Gradle.
 - **Exportação de fonte**, sempre disponível, quando nenhum executor de build for configurado.
 
 Nenhum código de projeto deve ser enviado para um serviço de build sem consentimento explícito. Segredos devem ser excluídos dos pacotes por padrão. Um APK só será marcado como validado quando houver resultado de build bem-sucedido e verificações pós-build configuradas.

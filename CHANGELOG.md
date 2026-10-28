@@ -10,7 +10,7 @@
 ### GitHub connector
 - Added OAuth Device Flow authorization, repository selection and encrypted token storage using Android Keystore-backed SecretStore.
 - Requests expiring OAuth tokens with `offline_access` and rotates refresh tokens automatically when an access token expires.
-- Shares the selected repository between Settings, chat context and Project Factory so repository owner/name/PAT are no longer re-entered for each build.
+- Shares the OAuth account/session across Settings, chat context and Project Factory while keeping the chat-context repository and dedicated private build repository as separate selections. Owner/name/PAT are no longer re-entered for each build.
 - Adds an explicit chat checkbox before sending a limited repository tree/source context to the selected AI provider; the OAuth token is never included in model prompts.
 - Adds documentation for the OAuth registration prerequisite, broad OAuth scopes, privacy implications and recovery from revoked/expired access.
 
@@ -33,7 +33,7 @@
 
 ### Cloud APK builds
 - Added an opt-in adapter for building Android projects in a user-owned private GitHub repository using GitHub Actions, JDK 17, Android SDK 36, and a pinned Gradle 8.13 distribution.
-- Adds a private repository/token setup screen, separate per-build consent, remote build status, a verified APK artifact download, and Save APK through Android's document picker.
+- Adds OAuth-backed repository selection shared with Settings, separate chat/build repository targets, separate per-build consent, remote build status, verified APK artifact download, and Save APK through Android's document picker.
 - The token is saved encrypted in Android Keystore-backed storage and never sent to the configured AI model. The remote builder refuses public repositories and does not overwrite an unrelated workflow.
 - The build runs with read-only GitHub repository permissions, executes the generated Gradle scripts only after explicit consent, validates the APK and checksum, and reports the run link on failure. APK output is debug-signed and is not a Play Store release.
 
@@ -42,7 +42,7 @@
 
 ### Validation
 - New unit tests cover Android project scaffolding and its main structural cases. The current source revision must pass Android unit tests, build and artifact verification before use.
-- Cloud APK building requires a user-owned private repository and a fine-grained token restricted to it with Contents, Actions and Workflows read/write permissions. GitHub Actions quota/network availability and generated code quality remain external constraints.
+- Historical 0.6.0-alpha used a manually configured fine-grained token. The 0.7.0-alpha flow uses OAuth Device Flow and a dedicated private build-repository selection; OAuth scope permissions are broader and must be reviewed carefully. GitHub Actions quota/network availability and generated code quality remain external constraints.
 
 ## 0.5.0-alpha — 2026-10-27
 
