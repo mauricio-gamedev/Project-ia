@@ -223,6 +223,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     }
 
     fun discardCurrentDraft(showStatus: Boolean = false) {
+        projectReadinessIssues = emptyList()
         val previous = stagedProject ?: return
         stagedProject = null
         visibleFileLimit = MAX_VISIBLE_FILES
@@ -498,6 +499,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 } else if (!generating && !exporting && !buildingApk && !verifyingBuildTarget) {
                     clearReviewState()
                     discardCurrentDraft()
+                    projectReadinessIssues = emptyList()
                     builtApk?.file?.delete()
                     builtApk = null
                     buildConsent = false
@@ -561,6 +563,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                             }
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
+                            projectReadinessIssues = generated.readinessIssues
                             builtApk?.file?.delete()
                             builtApk = null
                             buildConsent = false
@@ -571,15 +574,23 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     if (added > 0 || replaced > 0) {
                                         append(" Base Android completada: $added arquivo(s) adicionados, $replaced configurado(s) corrigido(s). ")
                                     }
+                                    if (generated.attempts > 1) {
+                                        append("A geração fez ${generated.attempts} tentativas para corrigir a saída incompleta. ")
+                                    }
                                     if (scaffold.defaultLauncherAdded) {
-                                        append("Foi criada uma Activity inicial de contingência; revise se a funcionalidade pedida foi ligada à tela inicial. ")
+                                        append("Foi criada uma Activity inicial de contingência; as funções solicitadas não estão confirmadas na tela de entrada. ")
                                     }
                                 }
                             } else {
+                                if (generated.attempts > 1) "A saída passou por uma segunda tentativa de validação. " else ""
+                            }
+                            val readinessNote = if (generated.readinessIssues.isNotEmpty()) {
+                                " A pré-validação encontrou ${generated.readinessIssues.size} problema(s); a compilação ficará bloqueada até a correção."
+                            } else {
                                 ""
                             }
-                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote Ainda não houve compilação."
-                            statusIsError = false
+                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote$readinessNote Ainda não houve compilação."
+                            statusIsError = generated.readinessIssues.isNotEmpty()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
