@@ -73,6 +73,7 @@ import io.github.astromg01.nucleo.domain.project.StagedProject
 import io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID
 import io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences
 import io.github.astromg01.nucleo.domain.github.GitHubRepository
+import io.github.astromg01.nucleo.domain.github.GitHubOAuthSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -101,6 +102,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     val scope = rememberCoroutineScope()
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
     val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
+    val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
     var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedRepository()) }
     var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
 
@@ -595,10 +597,10 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     Button(
                         onClick = {
                             val repository = githubConnectorPreferences.selectedRepository()
-                            val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).orEmpty()
+                            val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
                             if (repository == null) {
                                 buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
-                            } else if (token.isBlank()) {
+                            } else if (!hasStoredToken) {
                                 githubBuildTokenAvailable = false
                                 buildStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
                             } else if (verifyingBuildTarget || buildingApk) {
@@ -608,6 +610,8 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 buildStatus = "Validando acesso e privacidade do repositório selecionado…"
                                 scope.launch {
                                     try {
+                                        val token = githubOAuthSession.validAccessToken()
+                                            ?: throw java.io.IOException("Reconecte sua conta GitHub.")
                                         val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
                                         selectedBuildRepository = repository
                                         buildStatus = "Repositório privado confirmado: ${target.owner}/${target.name}."
@@ -667,12 +671,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         }
                         Button(
                             onClick = {
-                                val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).orEmpty()
+                                val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
                                 val repository = githubConnectorPreferences.selectedRepository()
                                 when {
                                     !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
                                     repository == null -> buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
-                                    token.isBlank() -> {
+                                    !hasStoredToken -> {
                                         githubBuildTokenAvailable = false
                                         buildStatus = "Conecte sua conta GitHub em Configurações antes de compilar."
                                     }
@@ -684,6 +688,8 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         buildStatus = "Preparando build remoto…"
                                         scope.launch {
                                             try {
+                                                val token = githubOAuthSession.validAccessToken()
+                                                    ?: throw java.io.IOException("Reconecte sua conta GitHub em Configurações.")
                                                 val artifact = GitHubAndroidBuildAdapter(context).build(
                                                     stagedProject = staged,
                                                     stagingRoot = stagingRoot,
