@@ -81,6 +81,18 @@ class GitHubAndroidBuildAdapterTest {
         assertTrue(safe.contains("[REDACTED]"))
     }
 
+    @Test
+    fun retainsTailDiagnosticsWhenApplyingTheOutputSizeLimit() {
+        val raw = (1..100).joinToString("\n") { index ->
+            "diagnostic-$index " + "x".repeat(220)
+        }
+
+        val safe = sanitizeBuildDiagnostics(raw)
+
+        assertTrue(safe.contains("diagnostic-100"))
+        assertTrue(!safe.contains("diagnostic-1 "))
+    }
+
     private fun expectIOException(expectedMessage: String, action: () -> Unit) {
         try {
             action()
