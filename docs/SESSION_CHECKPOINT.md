@@ -17,7 +17,7 @@
 - Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (consolidated fix) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
 - Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.1-alpha`, `versionCode 13` so it can upgrade earlier alpha installs.
 - The owner reported the previously installed alpha and GitHub connector worked; no end-to-end device test of PR #8 has yet been reported.
-- PR #8 head at the last refresh: `ff42c7957cfb3480bb219bf595a60f12aafd93c3`. GitHub Actions run [#?](https://github.com/mauricio-gamedev/Project-ia/actions) for that exact head was in progress; older green runs predate the final helper-file consolidation and must not be treated as validation of this candidate.
+- PR #8 head at the last refresh: `ff42c7957cfb3480bb219bf595a60f12aafd93c3`. GitHub Actions run [40772670885](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40772670885) for that exact head was in progress; older green runs predate the final helper-file consolidation and must not be treated as validation of this candidate.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
 
