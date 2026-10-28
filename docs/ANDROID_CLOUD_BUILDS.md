@@ -1,40 +1,35 @@
-# Compilação de APK Android pelo Núcleo AI
+# Remote Android APK Builds
 
-## Fluxo atual
+## How the current flow works
 
-O Android do celular não contém uma toolchain completa capaz de compilar qualquer projeto Android arbitrário. A Project Factory completa a estrutura Android básica, guarda o projeto em staging privado e, após consentimento separado, envia o ZIP para um repositório GitHub **privado**. O GitHub Actions executa Gradle com JDK 17 e Android SDK 36, verifica a assinatura do APK, publica o APK e o checksum SHA-256. O app baixa o artefato, exige o checksum válido e permite salvar o APK pelo seletor do Android.
+An Android phone does not provide a complete build toolchain for every arbitrary Android project. Project Factory creates or completes a supported Android scaffold, validates generated files, stores them in private staging, and—after separate user consent—uploads the project ZIP to a user-selected **private GitHub repository**. GitHub Actions runs Gradle using JDK 17 and Android SDK 36, builds a debug APK, verifies the artifact, calculates SHA-256, and uploads the build artifact. The app can download the artifact, check its checksum, and let the user save it through Android's file picker.
 
-Ter arquivos Kotlin, um Manifest ou uma build.gradle não comprova que há APK. A interface só declara compilação concluída depois que o workflow remoto termina com sucesso e o artefato passa pela verificação.
+Having Kotlin files, a manifest, or a Gradle script is not proof that an APK exists. The app must wait for a successful workflow and artifact verification before reporting a completed build.
 
-## Configuração inicial — uma vez
+## Initial configuration
 
-1. Crie um repositório privado dedicado aos builds, inicializado com README e uma branch padrão.
-2. Configure o Conector GitHub em **Configurações → Conector GitHub**. O Núcleo usa OAuth Device Flow: registre um OAuth App na sua conta GitHub, habilite **Device Flow** e informe o Client ID público no app. Não informe senha da conta nem cole um PAT.
-3. Toque em **Conectar GitHub**, abra a página oficial do GitHub e autorize o aplicativo com o código mostrado.
-4. Em Configurações → Conector GitHub, escolha o **repositório privado de build** separadamente do repositório que o chat usa para contexto. Recomendamos um repositório dedicado para que o workflow e os ZIPs de build não sejam escritos no seu projeto principal.
-5. Na Project Factory, gere e revise o projeto Android, marque o consentimento de build remoto e toque em **Compilar APK na nuvem**.
+1. Create a dedicated private repository for builds, initialized with a README and a default branch.
+2. Configure GitHub OAuth Device Flow in **Settings → GitHub Connector**; see [GITHUB_CONNECTOR.md](GITHUB_CONNECTOR.md). Do not enter a GitHub password or PAT into the app.
+3. Select the private build repository separately from the repository used for optional chat context.
+4. In Project Factory, generate the project and review the staged files.
+5. Enable the build consent option and start **Build APK in the cloud**.
 
-Detalhes do OAuth e escopos: [GITHUB_CONNECTOR.md](GITHUB_CONNECTOR.md). A autorização atual usa os escopos OAuth `repo`, `workflow` e `offline_access`; eles são amplos. Revise cuidadosamente a tela de autorização. Para distribuição do app a mais usuários, prefira evoluir para um GitHub App com permissões granulares e instalação limitada aos repositórios desejados.
+The connector currently uses the broad OAuth scopes \`repo\`, \`workflow\`, and \`offline_access\`. Review them carefully. The UI's repository selection is not a token-level permission boundary.
 
-O Núcleo instala `nucleo-android-build.yml` no repositório selecionado. Se já existir um workflow com esse nome que não pertença ao Núcleo AI, ele recusa sobrescrevê-lo. O ZIP do projeto é enviado para uma branch de build separada; a branch e o histórico de execução podem ser revisados ou apagados pelo dono do repositório.
+## Workflow behavior
 
-## Segurança e privacidade
+The Núcleo AI build adapter installs its dedicated workflow file in the selected build repository, then uploads the project to a build branch and triggers the workflow. It refuses to overwrite an existing workflow file that appears unrelated to Núcleo AI. The build logs and generated branch remain reviewable in the user's repository.
 
-- O código-fonte é enviado somente ao repositório privado selecionado. Qualquer pessoa com acesso a esse repositório poderá ler os arquivos.
-- O chat só lê e envia um conjunto limitado de arquivos do repositório ao provedor de IA quando o usuário ativa expressamente **Contexto de código**. O token GitHub nunca é colocado no prompt.
-- O build remoto tem consentimento separado, pois scripts Gradle e plugins são executáveis e podem rodar código no runner. Revise o fonte antes de consentir.
-- O workflow do build usa permissão `contents: read` para seu próprio `GITHUB_TOKEN`; não recebe a chave da OpenRouter nem outros segredos configurados no app.
-- Desconectar o GitHub remove os tokens guardados neste dispositivo, mas a revogação da autorização OAuth deve ser feita em GitHub → Settings → Applications → Authorized OAuth Apps.
-- O build produz um **APK de depuração**, não um release de publicação na Play Store. Não instala o APK automaticamente.
+Generated source and Gradle scripts are untrusted. Review the source before authorizing a build. A successful build means the configured workflow completed and its post-build artifact checks passed; it does not guarantee application correctness, runtime stability, performance, or Play Store readiness.
 
-## Assinatura do APK gerado
+## Outputs and signing
 
-A compilação remota de projetos gera um APK de depuração para teste. Ela não usa a chave de assinatura de release do próprio Núcleo AI. A assinatura desses projetos é independente da assinatura de atualização do app Núcleo.
+The output is a **debug APK**, not a production Play Store release. The artifact includes a SHA-256 checksum; the client validates it before offering the file. Signing behavior depends on the selected build workflow and configured signing key. Read [ANDROID_SIGNING.md](ANDROID_SIGNING.md) before relying on in-place updates between installations.
 
-## Limites atuais
+## Security and costs
 
-- Estrutura esperada: projeto Android com módulo Gradle `:app`, Gradle 8.13, AGP 8.13.2, Kotlin 2.3.21, Android SDK 36 e minSdk 26.
-- ZIP do fonte limitado a 8 MiB.
-- O app aguarda até vinte minutos. Um timeout da interface não cancela necessariamente o runner; use o link da execução para consultar o status.
-- Se Gradle falhar ou o artefato/checksum estiver ausente ou incorreto, o app não deve declarar APK pronto.
-- Build bem-sucedido comprova compilação e assinatura/checksum do APK, não a correção de todas as funções solicitadas. Teste o aplicativo gerado no dispositivo.
+- The project ZIP and build workflow are uploaded only to the selected private repository, after consent.
+- Anyone with repository access can potentially read the source and artifacts.
+- GitHub Actions usage and limits follow the repository owner's GitHub plan and current GitHub policies; remote builds are not guaranteed to be unlimited or free.
+- Do not include credentials or signing keystores in generated project files.
+- Revoke OAuth access when it is no longer needed.
