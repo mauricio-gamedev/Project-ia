@@ -509,9 +509,8 @@ private fun ChatScreen(container: AppContainer) {
         scope.launch {
             try {
                 container.database.chatMessageDao().insert(ChatMessageEntity(role = "user", content = text))
-                val history = container.database.chatMessageDao().latest("main", 20)
+                val history = container.database.chatMessageDao().latestConversation("main", 24)
                     .asReversed()
-                    .filter { it.role == "user" || it.role == "assistant" }
                     .map { AiMessage(it.role, it.content) }
                 val memories = container.database.memoryDao().latest(6)
                 val memoryContext = memories.joinToString("\n\n") { memory ->
