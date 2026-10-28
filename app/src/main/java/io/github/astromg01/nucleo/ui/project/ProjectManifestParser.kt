@@ -49,28 +49,28 @@ internal object ProjectManifestParser {
         val filesJson = json.optJSONArray("files")
             ?: throw IllegalArgumentException("O manifesto JSON não contém uma lista 'files' válida.")
         require(filesJson.length() in 1..ProjectFactory.MAX_FILES) {
-            "O manifesto precisa conter entre 1 e \${ProjectFactory.MAX_FILES} arquivos."
+            "O manifesto precisa conter entre 1 e ${ProjectFactory.MAX_FILES} arquivos."
         }
 
         val files = ArrayList<GeneratedProjectFile>(filesJson.length())
         val pathKeys = mutableSetOf<String>()
         for (index in 0 until filesJson.length()) {
             val entry = filesJson.optJSONObject(index)
-                ?: throw IllegalArgumentException("A entrada de arquivo \${index + 1} não é um objeto JSON válido.")
+                ?: throw IllegalArgumentException("A entrada de arquivo ${index + 1} não é um objeto JSON válido.")
             val rawPath = entry.opt("path")
             val rawContent = entry.opt("content")
             require(rawPath is String && rawPath.isNotBlank()) {
-                "A entrada de arquivo \${index + 1} não contém um caminho de texto válido."
+                "A entrada de arquivo ${index + 1} não contém um caminho de texto válido."
             }
             require(rawContent is String && rawContent.isNotBlank()) {
-                "A entrada de arquivo \${index + 1} ('\${rawPath.take(80)}') veio vazia ou sem o conteúdo completo."
+                "A entrada de arquivo ${index + 1} ('${rawPath.take(80)}') veio vazia ou sem o conteúdo completo."
             }
             require(rawContent.toByteArray(Charsets.UTF_8).size <= ProjectFactory.MAX_FILE_BYTES) {
-                "O arquivo '\${rawPath.take(ProjectFactory.MAX_PATH_CHARS)}' excede o limite de tamanho. Gere-o em partes menores."
+                "O arquivo '${rawPath.take(ProjectFactory.MAX_PATH_CHARS)}' excede o limite de tamanho. Gere-o em partes menores."
             }
             val normalizedPath = rawPath.lowercase(Locale.ROOT)
             require(pathKeys.add(normalizedPath)) {
-                "O manifesto contém o caminho duplicado '\${rawPath.take(ProjectFactory.MAX_PATH_CHARS)}'. Gere novamente sem arquivos repetidos."
+                "O manifesto contém o caminho duplicado '${rawPath.take(ProjectFactory.MAX_PATH_CHARS)}'. Gere novamente sem arquivos repetidos."
             }
             files += GeneratedProjectFile(path = rawPath, content = rawContent)
         }
