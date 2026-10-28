@@ -67,6 +67,8 @@ fun GitHubConnectorCard(container: AppContainer) {
     var pollRetry by remember { mutableStateOf(0) }
 
     suspend fun refresh() {
+        sessionVerified = false
+        accountLogin = null
         val token = session.validAccessToken()
             ?: throw java.io.IOException("Nenhuma sessão OAuth GitHub válida foi encontrada. Conecte a conta para carregar os repositórios.")
         // Verify the account itself before interpreting a failed repository listing as disconnection.
@@ -180,10 +182,14 @@ fun GitHubConnectorCard(container: AppContainer) {
                         status = "O GitHub recusou a sessão salva. As credenciais inválidas foram removidas, mantendo as seleções de repositório. Reconecte a conta."
                     } else {
                         connected = session.hasStoredAccessToken()
-                        sessionVerified = false
-                        accountLogin = null
-                        status = "A credencial está salva, mas não consegui validar/listar os repositórios agora: " +
-                            (error.message ?: "falha temporária. Tente atualizar novamente.")
+                        sessionVerified = !accountLogin.isNullOrBlank()
+                        status = if (sessionVerified) {
+                            "Conta @${accountLogin} validada, mas não consegui atualizar a lista de repositórios: " +
+                                (error.message ?: "falha temporária. Tente atualizar novamente.")
+                        } else {
+                            "A credencial está salva, mas não consegui validar a sessão agora: " +
+                                (error.message ?: "falha temporária. Tente atualizar novamente.")
+                        }
                     }
                 } finally {
                     busy = false
@@ -348,10 +354,14 @@ fun GitHubConnectorCard(container: AppContainer) {
                                     status = "O GitHub recusou a sessão salva. As credenciais inválidas foram removidas, mantendo as seleções de repositório. Reconecte a conta."
                                 } else {
                                     connected = session.hasStoredAccessToken()
-                                    sessionVerified = false
-                                    accountLogin = null
-                                    status = "A credencial está salva, mas não consegui validar/listar os repositórios: " +
-                                        (error.message ?: "falha temporária. Tente novamente.")
+                                    sessionVerified = !accountLogin.isNullOrBlank()
+                                    status = if (sessionVerified) {
+                                        "Conta @${accountLogin} validada, mas não consegui atualizar a lista de repositórios: " +
+                                            (error.message ?: "falha temporária. Tente novamente.")
+                                    } else {
+                                        "A credencial está salva, mas não consegui validar a sessão: " +
+                                            (error.message ?: "falha temporária. Tente novamente.")
+                                    }
                                 }
                             } finally {
                                 busy = false
