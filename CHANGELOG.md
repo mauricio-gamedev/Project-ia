@@ -16,6 +16,7 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 ### Provider routing reliability
 - Restored the existing provider request timeout behavior rather than applying an aggressive 40-second cap that could cut off slow/free model queues.
 - Clear stale cooldown state when the primary provider, endpoint, model, or API key changes, so a failure from the previous model does not block the newly selected model.
+- Add a manual AutoRouter control to clear temporary cooldowns for configured routes when a user needs to retry.
 - Added unit tests for cooldown invalidation and chat Markdown formatting.
 
 ### Release and validation
