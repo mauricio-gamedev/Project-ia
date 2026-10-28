@@ -14,10 +14,9 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 - Added a persistent OLED Black theme option with a pure-black canvas and high-contrast accents.
 
 ### Provider routing reliability
-- Reduced the maximum wait for a single remote route from 210 seconds to 40 seconds.
-- Added a 90-second overall deadline across remote provider attempts, with remaining time shared by normal requests and compatibility retries.
-- Bound connect and write timeouts to the remaining route budget so failed or slow providers give AutoRouter an earlier chance to use a fallback.
-- Added unit tests for route deadlines and chat Markdown formatting.
+- Restored the existing provider request timeout behavior rather than applying an aggressive 40-second cap that could cut off slow/free model queues.
+- Clear stale cooldown state when the primary provider, endpoint, model, or API key changes, so a failure from the previous model does not block the newly selected model.
+- Added unit tests for cooldown invalidation and chat Markdown formatting.
 
 ### Release and validation
 - Updated the app to 0.8.0-alpha / versionCode 12, preserving the application ID and signing identity for install-over updates.
