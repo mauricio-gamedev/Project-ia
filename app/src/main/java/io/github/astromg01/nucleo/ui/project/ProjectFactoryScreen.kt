@@ -223,7 +223,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     message.contains("bad_refresh_token", ignoreCase = true) ||
                     message.contains("não há token de acesso válido", ignoreCase = true)
             }
-            if (authFailure) githubAccountLogin = null
+            githubAccountLogin = null
             githubStatus = if (authFailure) {
                 "A sessão GitHub foi encontrada no armazenamento, mas precisa de nova autorização: " + message
             } else {
@@ -815,8 +815,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 scope.launch {
                                     try {
                                         val token = githubOAuthSession.validAccessToken()
-                                            ?: throw java.io.IOException("Reconecte sua conta GitHub.")
-                                        val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
+                                            ?: throw java.io.IOException("Não há uma sessão OAuth válida salva. Reconecte a conta GitHub.")
+                                        val login = io.github.astromg01.nucleo.domain.github.GitHubConnector()
+                                            .authenticatedUserLogin(token)
+                                        githubAccountLogin = login
+                                        githubBuildTokenAvailable = true
+                                        val target = GitHubAndroidBuildAdapter(context)
+                                            .verifyRepository(repository.owner, repository.name, token)
                                         selectedBuildRepository = repository
                                         githubStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
                                     } catch (cancelled: CancellationException) {
@@ -829,7 +834,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 }
                             }
                         },
-                        enabled = !verifyingBuildTarget && !buildingApk,
+                        enabled = !verifyingBuildTarget && !buildingApk && !syncingGitHub && githubAccountLogin != null,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (verifyingBuildTarget) CircularProgressIndicator(modifier = Modifier.height(18.dp))
@@ -885,6 +890,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         buildStatus = "Conecte sua conta GitHub em Configurações antes de compilar."
                                     }
                                     !repository.isPrivate -> buildStatus = "Por segurança, a compilação aceita somente um repositório privado."
+                                    githubAccountLogin == null || syncingGitHub -> buildStatus = "Sincronize a sessão GitHub e confirme a conta antes de iniciar a compilação."
                                     buildingApk || verifyingBuildTarget -> Unit
                                     else -> {
                                         buildingApk = true
@@ -895,7 +901,11 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         scope.launch {
                                             try {
                                                 val token = githubOAuthSession.validAccessToken()
-                                                    ?: throw java.io.IOException("Reconecte sua conta GitHub em Configurações.")
+                                                    ?: throw java.io.IOException("Não há uma sessão OAuth válida salva. Reconecte sua conta em Configurações.")
+                                                val login = io.github.astromg01.nucleo.domain.github.GitHubConnector()
+                                                    .authenticatedUserLogin(token)
+                                                githubAccountLogin = login
+                                                githubBuildTokenAvailable = true
                                                 val artifact = GitHubAndroidBuildAdapter(context).build(
                                                     stagedProject = staged,
                                                     stagingRoot = stagingRoot,
@@ -925,7 +935,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 }
                             },
                             enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating &&
-                                generationValidationIssues.isEmpty(),
+                                !syncingGitHub && githubAccountLogin != null && generationValidationIssues.isEmpty(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (buildingApk) CircularProgressIndicator(modifier = Modifier.height(18.dp))
