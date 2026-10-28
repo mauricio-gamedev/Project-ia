@@ -2,6 +2,26 @@
 
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
+
+## 0.8.0-alpha — 2026-10-28
+
+### Chat readability and controls
+- Expanded assistant responses to use the available chat width while keeping user messages visually distinct.
+- Reduced chat body text sizing slightly and tightened line spacing to show more of each response at once.
+- Added selectable message text and a one-tap copy action for user, assistant, and error messages.
+- Added lightweight Markdown presentation for headings, bullets, bold/italic text, inline code, and fenced code blocks.
+- Condensed the chat privacy/status banner to free vertical space.
+- Added a persistent OLED Black theme option with a pure-black canvas and high-contrast accents.
+
+### Provider routing reliability
+- Reduced the maximum wait for a single remote route from 210 seconds to 40 seconds.
+- Added a 90-second overall deadline across remote provider attempts, with remaining time shared by normal requests and compatibility retries.
+- Bound connect and write timeouts to the remaining route budget so failed or slow providers give AutoRouter an earlier chance to use a fallback.
+- Added unit tests for route deadlines and chat Markdown formatting.
+
+### Release and validation
+- Updated the app to 0.8.0-alpha / versionCode 12, preserving the application ID and signing identity for install-over updates.
+
 ## 0.7.1-alpha — 2026-10-28
 
 ### GitHub OAuth reliability
