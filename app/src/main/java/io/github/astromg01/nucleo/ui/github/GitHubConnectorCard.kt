@@ -80,8 +80,8 @@ fun GitHubConnectorCard(container: AppContainer) {
         }
         session.save(tokens)
         connected = true
-        deviceAuthorization = null
         refresh()
+        deviceAuthorization = null
     }
 
     DisposableEffect(lifecycleOwner) {
