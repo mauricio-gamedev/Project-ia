@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.documentfile.provider.DocumentFile
 import io.github.astromg01.nucleo.AppContainer
 import io.github.astromg01.nucleo.export.IShizukuExportService
@@ -63,6 +67,8 @@ import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
 import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.ProjectGenerationCoordinator
+import io.github.astromg01.nucleo.domain.project.ProjectSourceIntegrityValidator
 import io.github.astromg01.nucleo.domain.project.AndroidProjectScaffold
 import io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter
 import io.github.astromg01.nucleo.domain.project.BuiltAndroidArtifact
@@ -72,6 +78,7 @@ import io.github.astromg01.nucleo.domain.project.ProjectProfile
 import io.github.astromg01.nucleo.domain.project.StagedProject
 import io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID
 import io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences
+import io.github.astromg01.nucleo.domain.github.GitHubConnector
 import io.github.astromg01.nucleo.domain.github.GitHubRepository
 import io.github.astromg01.nucleo.domain.github.GitHubOAuthSession
 import kotlinx.coroutines.CancellationException
@@ -100,11 +107,15 @@ private data class ProjectRepairDiffEntry(
 fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
     val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
     val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
     var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedBuildRepository()) }
     var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
+    var githubAccountLogin by remember { mutableStateOf<String?>(null) }
+    var githubSessionVerified by remember { mutableStateOf(false) }
+    var syncingGitHubSession by remember { mutableStateOf(false) }
 
     var projectName by remember { mutableStateOf("Meu projeto") }
     var description by remember { mutableStateOf("") }
@@ -113,6 +124,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var projectReadinessIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var verifyingBuildTarget by remember { mutableStateOf(false) }
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
@@ -136,6 +148,57 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var repairCandidate by remember { mutableStateOf<StagedProject?>(null) }
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
+
+    suspend fun syncGitHubIntegration(showStatus: Boolean) {
+        selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
+        try {
+            val token = githubOAuthSession.validAccessToken()
+            if (token.isNullOrBlank()) {
+                githubBuildTokenAvailable = false
+                githubSessionVerified = false
+                githubAccountLogin = null
+                if (showStatus) buildStatus = "Nenhuma sessão GitHub válida foi encontrada neste dispositivo. Conecte a conta nas Configurações."
+                return
+            }
+            val login = GitHubConnector().authenticatedUserLogin(token)
+            githubBuildTokenAvailable = true
+            githubSessionVerified = true
+            githubAccountLogin = login
+            if (showStatus) {
+                buildStatus = if (selectedBuildRepository == null) {
+                    "Sessão GitHub validada como @$login. Ainda falta escolher um repositório privado dedicado ao build."
+                } else {
+                    "Sessão GitHub validada como @$login. Repositório de build selecionado: \${selectedBuildRepository!!.fullName}."
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            githubBuildTokenAvailable = false
+            githubSessionVerified = false
+            githubAccountLogin = null
+            if (showStatus) {
+                buildStatus = "Existe uma credencial GitHub salva, mas não consegui validar a sessão: \${error.message ?: "erro de autenticação"}. Reautorize somente se a sessão realmente expirou."
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && !syncingGitHubSession) {
+                syncingGitHubSession = true
+                scope.launch {
+                    try {
+                        syncGitHubIntegration(showStatus = false)
+                    } finally {
+                        syncingGitHubSession = false
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     fun clearReviewState() {
         val candidate = repairCandidate
