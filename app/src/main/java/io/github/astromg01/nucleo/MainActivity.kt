@@ -71,6 +71,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -129,6 +130,19 @@ class MainActivity : ComponentActivity() {
             }
             var oledBlack by rememberSaveable {
                 mutableStateOf(themePreferences.getBoolean("oled_black_enabled", false))
+            }
+            SideEffect {
+                val systemBarColor = if (oledBlack) {
+                    android.graphics.Color.BLACK
+                } else {
+                    android.graphics.Color.rgb(11, 11, 16)
+                }
+                window.statusBarColor = systemBarColor
+                window.navigationBarColor = systemBarColor
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    window.isStatusBarContrastEnforced = false
+                    window.isNavigationBarContrastEnforced = false
+                }
             }
             NucleoTheme(oledBlack = oledBlack) {
                 NucleoShell(
@@ -882,7 +896,7 @@ private fun MessageBubble(message: ChatMessageEntity) {
                 }
                 SelectionContainer {
                     Text(
-                        text = formatChatMarkdown(message.content),
+                        text = formatChatMarkdown(message.content, MaterialTheme.colorScheme.primary),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontSize = 13.sp,
                             lineHeight = 19.sp,
