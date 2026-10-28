@@ -1,0 +1,357 @@
+package io.github.astromg01.nucleo.domain.github
+
+import android.content.Context
+import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
+
+const val GITHUB_OAUTH_TOKEN_ID = "github_oauth_access_token"
+
+data class GitHubDeviceAuthorization(
+    val deviceCode: String,
+    val userCode: String,
+    val verificationUri: String,
+    val expiresInSeconds: Long,
+    val intervalSeconds: Long,
+)
+
+data class GitHubRepository(
+    val owner: String,
+    val name: String,
+    val isPrivate: Boolean,
+    val defaultBranch: String,
+    val htmlUrl: String,
+    val description: String,
+    val canPush: Boolean,
+) {
+    val fullName: String get() = "$owner/$name"
+}
+
+data class GitHubRepositoryContext(
+    val repository: GitHubRepository,
+    val branch: String,
+    val filePaths: List<String>,
+    val selectedFiles: Map<String, String>,
+) {
+    fun toPromptContext(maxChars: Int = 18_000): String = buildString {
+        appendLine("GitHub repository: ${repository.fullName}")
+        appendLine("Visibility: ${if (repository.isPrivate) "private" else "public"}")
+        appendLine("Default branch: $branch")
+        if (repository.description.isNotBlank()) appendLine("Description: ${repository.description}")
+        appendLine()
+        appendLine("Repository file tree (truncated):")
+        filePaths.take(100).forEach { appendLine("- $it") }
+        selectedFiles.forEach { (path, source) ->
+            if (length < maxChars) {
+                appendLine()
+                appendLine("----- FILE: $path -----")
+                append(source.take((maxChars - length).coerceAtLeast(0)))
+                appendLine()
+                appendLine("----- END FILE -----")
+            }
+        }
+    }.take(maxChars)
+}
+
+/**
+ * GitHub OAuth Device Flow with encrypted-token handoff and read-only repository context.
+ * No credentials are persisted here or sent to model providers. Repository writes remain behind
+ * the Project Factory's explicit build consent. OAuth scopes "repo workflow" are broad, so the
+ * UI must explain their reach and the app operates on the repository selected by the user.
+ */
+class GitHubConnector(
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
+        .writeTimeout(35, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
+        .build(),
+) {
+    suspend fun requestDeviceAuthorization(clientId: String): GitHubDeviceAuthorization =
+        withContext(Dispatchers.IO) {
+            validateClientId(clientId)
+            val json = JSONObject(postForm(
+                DEVICE_CODE_URL,
+                mapOf("client_id" to clientId.trim(), "scope" to "repo workflow"),
+            ))
+            GitHubDeviceAuthorization(
+                deviceCode = json.optString("device_code").takeIf { it.isNotBlank() }
+                    ?: throw IOException("O GitHub não retornou um código de dispositivo."),
+                userCode = json.optString("user_code").takeIf { it.isNotBlank() }
+                    ?: throw IOException("O GitHub não retornou o código que deve ser autorizado."),
+                verificationUri = json.optString("verification_uri").takeIf { it.isNotBlank() }
+                    ?: throw IOException("O GitHub não retornou o endereço de autorização."),
+                expiresInSeconds = json.optLong("expires_in", 900L).coerceIn(60L, 1800L),
+                intervalSeconds = json.optLong("interval", 5L).coerceIn(5L, 30L),
+            )
+        }
+
+    suspend fun awaitAccessToken(
+        clientId: String,
+        authorization: GitHubDeviceAuthorization,
+        onStatus: (String) -> Unit = {},
+    ): String = withContext(Dispatchers.IO) {
+        validateClientId(clientId)
+        val deadline = System.nanoTime() + authorization.expiresInSeconds * 1_000_000_000L
+        var interval = authorization.intervalSeconds.coerceIn(5L, 30L)
+        while (System.nanoTime() < deadline) {
+            delay(interval * 1_000L)
+            val json = JSONObject(postForm(
+                ACCESS_TOKEN_URL,
+                mapOf(
+                    "client_id" to clientId.trim(),
+                    "device_code" to authorization.deviceCode,
+                    "grant_type" to DEVICE_GRANT_TYPE,
+                ),
+            ))
+            json.optString("access_token").takeIf { it.isNotBlank() }?.let { return@withContext it }
+            when (json.optString("error")) {
+                "authorization_pending" -> onStatus("Aguardando você autorizar o Núcleo AI no GitHub…")
+                "slow_down" -> {
+                    interval = (interval + 5L).coerceAtMost(60L)
+                    onStatus("O GitHub pediu para reduzir a frequência de consulta…")
+                }
+                "access_denied" -> throw IOException("A autorização do GitHub foi recusada.")
+                "expired_token" -> throw IOException("O código de autorização expirou. Inicie a conexão novamente.")
+                "incorrect_client_credentials" -> throw IOException("O Client ID do OAuth App não foi reconhecido pelo GitHub.")
+                "device_flow_disabled" -> throw IOException("Ative Device Flow nas configurações do OAuth App e tente novamente.")
+                else -> throw IOException("O GitHub não concluiu a autorização. Verifique o OAuth App e tente novamente.")
+            }
+        }
+        throw IOException("O tempo de autorização expirou. Inicie a conexão novamente.")
+    }
+
+    suspend fun listRepositories(accessToken: String): List<GitHubRepository> =
+        withContext(Dispatchers.IO) {
+            validateAccessToken(accessToken)
+            buildList {
+                for (page in 1..3) {
+                    val url = "$API_BASE/user/repos".toHttpUrl().newBuilder()
+                        .addQueryParameter("visibility", "all")
+                        .addQueryParameter("affiliation", "owner,collaborator,organization_member")
+                        .addQueryParameter("sort", "updated")
+                        .addQueryParameter("per_page", "100")
+                        .addQueryParameter("page", page.toString())
+                        .build()
+                    val items = JSONArray(apiGet(url.toString(), accessToken))
+                    if (items.length() == 0) break
+                    for (index in 0 until items.length()) {
+                        val item = items.optJSONObject(index) ?: continue
+                        val owner = item.optJSONObject("owner")?.optString("login").orEmpty()
+                        val name = item.optString("name").orEmpty()
+                        if (owner.isBlank() || name.isBlank()) continue
+                        add(GitHubRepository(
+                            owner = owner,
+                            name = name,
+                            isPrivate = item.optBoolean("private", false),
+                            defaultBranch = item.optString("default_branch").orEmpty(),
+                            htmlUrl = item.optString("html_url", "https://github.com/$owner/$name"),
+                            description = item.optString("description").orEmpty(),
+                            canPush = item.optJSONObject("permissions")?.optBoolean("push", false) == true,
+                        ))
+                    }
+                    if (items.length() < 100) break
+                }
+            }.distinctBy { it.fullName.lowercase() }
+        }
+
+    suspend fun fetchRepositoryContext(
+        accessToken: String,
+        repository: GitHubRepository,
+        maxChars: Int = 18_000,
+    ): GitHubRepositoryContext = withContext(Dispatchers.IO) {
+        validateAccessToken(accessToken)
+        validateRepository(repository)
+        val metadata = JSONObject(apiGet("$API_BASE/repos/${repository.owner}/${repository.name}", accessToken))
+        val branch = metadata.optString("default_branch").ifBlank { repository.defaultBranch }
+        if (branch.isBlank()) throw IOException("O repositório não possui uma branch padrão inicializada.")
+        val treeUrl = "$API_BASE/repos/${repository.owner}/${repository.name}/git/trees/${encodePathSegment(branch)}?recursive=1"
+        val treeJson = JSONObject(apiGet(treeUrl, accessToken))
+        val tree = treeJson.optJSONArray("tree") ?: JSONArray()
+        val allPaths = mutableListOf<String>()
+        val sizes = mutableMapOf<String, Long>()
+        for (index in 0 until tree.length()) {
+            val entry = tree.optJSONObject(index) ?: continue
+            if (entry.optString("type") != "blob") continue
+            val filePath = entry.optString("path").takeIf { it.isNotBlank() } ?: continue
+            allPaths += filePath
+            sizes[filePath] = entry.optLong("size", 0L)
+        }
+        val preferred = listOf(
+            "README.md", "settings.gradle.kts", "build.gradle.kts", "app/build.gradle.kts",
+            "app/src/main/AndroidManifest.xml", "package.json", "pubspec.yaml", "index.html",
+        )
+        val selectedPaths = buildList {
+            preferred.forEach { wanted -> allPaths.firstOrNull { it.equals(wanted, ignoreCase = true) }?.let(::add) }
+            allPaths.filter { filePath ->
+                val lower = filePath.lowercase()
+                (lower.endsWith(".kt") || lower.endsWith(".java") || lower.endsWith(".ts") ||
+                    lower.endsWith(".tsx") || lower.endsWith(".js") || lower.endsWith(".py") ||
+                    lower.endsWith(".gd") || lower.endsWith(".html") || lower.endsWith(".md")) &&
+                    !lower.contains("/build/") && !lower.contains("/.git/") &&
+                    !lower.endsWith("lock") && !lower.contains("generated")
+            }.take(8).forEach { if (it !in this) add(it) }
+        }.distinct().take(10)
+
+        val selectedFiles = linkedMapOf<String, String>()
+        var budget = (maxChars - allPaths.take(100).sumOf { it.length + 3 } - 800).coerceAtLeast(2_000)
+        for (filePath in selectedPaths) {
+            if (budget <= 0) break
+            if ((sizes[filePath] ?: 0L) !in 1..256_000) continue
+            try {
+                val url = "$API_BASE/repos/${repository.owner}/${repository.name}/contents/${encodePath(filePath)}?ref=${encodeQuery(branch)}"
+                val fileJson = JSONObject(apiGet(url, accessToken))
+                if (fileJson.optString("encoding") != "base64") continue
+                val encoded = fileJson.optString("content").replace(Regex("\\s+"), "")
+                val source = Base64.decode(encoded, Base64.DEFAULT).toString(Charsets.UTF_8)
+                val limit = minOf(3_000, budget)
+                selectedFiles[filePath] = source.take(limit)
+                budget -= minOf(source.length, limit) + filePath.length + 40
+            } catch (error: Exception) {
+                if (filePath.equals("README.md", ignoreCase = true)) {
+                    throw IOException("Não foi possível ler o README do repositório conectado.", error)
+                }
+            }
+        }
+        val updatedRepo = repository.copy(
+            isPrivate = metadata.optBoolean("private", repository.isPrivate),
+            defaultBranch = branch,
+            htmlUrl = metadata.optString("html_url", repository.htmlUrl),
+            description = metadata.optString("description", repository.description).orEmpty(),
+            canPush = metadata.optJSONObject("permissions")?.optBoolean("push", repository.canPush) ?: repository.canPush,
+        )
+        GitHubRepositoryContext(updatedRepo, branch, allPaths.take(100), selectedFiles)
+    }
+
+    private fun apiGet(url: String, accessToken: String): String {
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", API_VERSION)
+            .get().build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val message = when (response.code) {
+                    401 -> "O GitHub não aceitou a conexão. Reconecte sua conta."
+                    403 -> "O GitHub recusou o acesso. Verifique permissões, organização e limites da API."
+                    404 -> "O GitHub não encontrou o repositório ou você não tem permissão para acessá-lo."
+                    429 -> "O GitHub limitou as requisições. Tente novamente mais tarde."
+                    in 500..599 -> "O GitHub apresentou uma falha temporária."
+                    else -> "O GitHub respondeu HTTP ${response.code}."
+                }
+                throw GitHubConnectorException(response.code, message)
+            }
+            return body
+        }
+    }
+
+    private fun postForm(url: String, values: Map<String, String>): String {
+        val form = FormBody.Builder().apply { values.forEach { (key, value) -> add(key, value) } }.build()
+        val request = Request.Builder().url(url)
+            .header("Accept", "application/json")
+            .header("X-GitHub-Api-Version", API_VERSION)
+            .post(form).build()
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw GitHubConnectorException(response.code, "Não foi possível autorizar com o GitHub.")
+            return body
+        }
+    }
+
+    private fun validateClientId(clientId: String) {
+        require(clientId.trim().matches(Regex("[A-Za-z0-9.]{10,80}"))) {
+            "Informe um Client ID válido do OAuth App do GitHub com Device Flow habilitado."
+        }
+    }
+
+    private fun validateAccessToken(token: String) {
+        require(token.isNotBlank() && token.length <= 2_048 && !token.any { it.isWhitespace() }) {
+            "A conexão GitHub não está válida. Conecte a conta novamente."
+        }
+    }
+
+    private fun validateRepository(repository: GitHubRepository) {
+        require(repository.owner.matches(Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")) &&
+            repository.name.matches(Regex("[A-Za-z0-9_.-]{1,100}"))) {
+            "Identidade do repositório GitHub inválida."
+        }
+    }
+
+    private fun encodePath(path: String): String = path.split("/").joinToString("/") { encodePathSegment(it) }
+
+    private fun encodePathSegment(value: String): String = value.toByteArray(Charsets.UTF_8).joinToString("") { byte ->
+        val unsigned = byte.toInt() and 0xff
+        if ((unsigned in 'a'.code..'z'.code) || (unsigned in 'A'.code..'Z'.code) ||
+            (unsigned in '0'.code..'9'.code) || unsigned in listOf('-'.code, '_'.code, '.'.code, '~'.code)
+        ) unsigned.toChar().toString() else "%%%02X".format(unsigned)
+    }
+
+    private fun encodeQuery(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    class GitHubConnectorException(val statusCode: Int, message: String) : IOException(message)
+
+    companion object {
+        private const val API_BASE = "https://api.github.com"
+        private const val DEVICE_CODE_URL = "https://github.com/login/device/code"
+        private const val ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
+        private const val DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
+        private const val API_VERSION = "2022-11-28"
+    }
+}
+
+/** OAuth Client ID and selected repository are metadata; the access token belongs in SecretStore. */
+class GitHubConnectorPreferences(context: Context) {
+    private val preferences = context.getSharedPreferences("github_connector", Context.MODE_PRIVATE)
+
+    fun clientId(): String = preferences.getString(KEY_CLIENT_ID, "").orEmpty()
+    fun saveClientId(value: String) { preferences.edit().putString(KEY_CLIENT_ID, value.trim()).apply() }
+
+    fun selectedRepository(): GitHubRepository? {
+        val owner = preferences.getString(KEY_OWNER, "").orEmpty()
+        val name = preferences.getString(KEY_REPOSITORY, "").orEmpty()
+        if (owner.isBlank() || name.isBlank()) return null
+        return GitHubRepository(
+            owner = owner, name = name,
+            isPrivate = preferences.getBoolean(KEY_PRIVATE, false),
+            defaultBranch = preferences.getString(KEY_BRANCH, "").orEmpty(),
+            htmlUrl = preferences.getString(KEY_URL, "https://github.com/$owner/$name").orEmpty(),
+            description = preferences.getString(KEY_DESCRIPTION, "").orEmpty(),
+            canPush = preferences.getBoolean(KEY_CAN_PUSH, false),
+        )
+    }
+
+    fun saveSelectedRepository(repository: GitHubRepository) {
+        preferences.edit()
+            .putString(KEY_OWNER, repository.owner).putString(KEY_REPOSITORY, repository.name)
+            .putBoolean(KEY_PRIVATE, repository.isPrivate).putString(KEY_BRANCH, repository.defaultBranch)
+            .putString(KEY_URL, repository.htmlUrl).putString(KEY_DESCRIPTION, repository.description)
+            .putBoolean(KEY_CAN_PUSH, repository.canPush).apply()
+    }
+
+    fun clearSelectedRepository() {
+        preferences.edit().remove(KEY_OWNER).remove(KEY_REPOSITORY).remove(KEY_PRIVATE)
+            .remove(KEY_BRANCH).remove(KEY_URL).remove(KEY_DESCRIPTION).remove(KEY_CAN_PUSH).apply()
+    }
+
+    companion object {
+        private const val KEY_CLIENT_ID = "oauth_client_id"
+        private const val KEY_OWNER = "selected_owner"
+        private const val KEY_REPOSITORY = "selected_repository"
+        private const val KEY_PRIVATE = "selected_private"
+        private const val KEY_BRANCH = "selected_default_branch"
+        private const val KEY_URL = "selected_url"
+        private const val KEY_DESCRIPTION = "selected_description"
+        private const val KEY_CAN_PUSH = "selected_can_push"
+    }
+}
