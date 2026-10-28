@@ -1,44 +1,43 @@
-# Conector GitHub do Núcleo AI
+# GitHub Connector
 
-## Configuração única
+## One-time setup
 
-A conexão usa o OAuth Device Flow do GitHub. Isso evita pedir senha da conta ou colar um Personal Access Token em cada projeto, mas exige um Client ID público de um app OAuth do GitHub.
+The app uses GitHub OAuth Device Flow. It does not require the user to paste a personal access token (PAT) or GitHub account password into Núcleo AI, but a public OAuth App Client ID must be configured first.
 
-1. Abra GitHub → Settings → Developer settings → OAuth Apps e registre um OAuth App para o Núcleo AI.
-2. Use um nome e uma Homepage URL que você reconheça. A callback URL é exigida pelo cadastro do OAuth App, mas o Device Flow não usa redirecionamento de callback.
-3. Habilite **Enable Device Flow** no app OAuth e salve.
-4. Copie o **Client ID** (não o client secret) para Configurações → Conector GitHub no Núcleo AI.
-5. Toque em Conectar GitHub, abra a página do GitHub e digite o código exibido pelo app.
-6. Escolha dois alvos independentes: **repositório de contexto do chat** (leitura opcional; pode ser qualquer repositório que sua conta tenha autorização para ler) e **repositório dedicado de build** (deve ser privado e permitir escrita). Você pode usar o mesmo, mas recomendamos separá-los para não colocar o workflow de build no repositório principal do projeto.
+1. Open GitHub **Settings → Developer settings → OAuth Apps** and create an OAuth App for Núcleo AI.
+2. Set an application name and homepage URL. GitHub's OAuth App registration form may ask for a callback URL; Device Flow itself uses a user code rather than a browser redirect.
+3. Enable **Device Flow** for the OAuth App and save the settings.
+4. Copy the public **Client ID**—not a client secret—into **Settings → GitHub Connector** in Núcleo AI.
+5. Start the connection, open GitHub's verification page, enter the one-time code shown in the app, and approve the access request.
+6. Select the repository for optional chat context and, separately, the private repository for remote Android builds.
 
-Documentação oficial: [criação de OAuth App](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app) e [Device Flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
+Official references: [Create an OAuth App](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app) and [Authorizing OAuth Apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
 
-## Escopos e limites
+## Requested scopes and permission implications
 
-O fluxo atual solicita os escopos OAuth `repo`, `workflow` e `offline_access`:
+The current flow requests:
 
-- `repo` permite acesso amplo de leitura e gravação a repositórios públicos e privados que a conta pode acessar.
-- `workflow` permite que a aplicação atualize workflows do GitHub Actions, necessário para o build remoto.
-- `offline_access` permite receber tokens curtos e um refresh token, quando o OAuth App suporta tokens expirantes.
+- \`repo\`: broad repository access to repositories the account can access.
+- \`workflow\`: access required by the remote build workflow to update/run GitHub Actions workflow files.
+- \`offline_access\`: support for expiring access tokens and refresh-token renewal where supported by the OAuth App.
 
-Esses escopos são amplos. Embora a interface do Núcleo use seleções explícitas para contexto e build e exija consentimento separado antes do build, o token OAuth tem permissões sobre os repositórios abrangidos pelo escopo. Revise o pedido de autorização antes de aprovar. Para uma futura distribuição ampla, a opção preferível é um GitHub App com permissões granulares e instalação limitada a repositórios selecionados; isso exige registrar e manter um app GitHub próprio.
+These scopes are broad. A repository selection in the Núcleo AI UI limits the operations the UI initiates; it does not narrow the authorization token's underlying scope. Review the GitHub consent page carefully. Revoke the OAuth App from GitHub Settings when you no longer trust or need the connection.
 
-O token de acesso e o refresh token são guardados cifrados usando o Android Keystore. O app renova automaticamente tokens expirantes quando precisa acessar o GitHub. O refresh token é rotativo: o novo par substitui o anterior. Se o refresh token expirar ou for revogado, conecte novamente a conta.
+## Session persistence and recovery
 
-Desconectar no Núcleo remove os tokens guardados neste dispositivo. Para revogar efetivamente a autorização do OAuth App, acesse GitHub → Settings → Applications → Authorized OAuth Apps.
+Access and refresh tokens are encrypted using Android Keystore-backed storage. When the user returns from the browser, the app checks the stored session and refreshes the repository list. Pending Device Flow state is also stored encrypted so the app can resume polling if Android backgrounds or recreates the app. Transient polling errors can be retried; an expired or rejected code requires a new authorization attempt.
 
-## Uso no app
+If GitHub shows the OAuth App as authorized but Núcleo AI is not connected, open the connector settings and start a new Device Flow authorization. A browser approval alone cannot restore a device code that has already expired.
 
-- **Chat:** a conexão permite selecionar um repositório e ativar opcionalmente “Contexto de código”. Só quando essa opção está marcada o Núcleo lê a árvore e um conjunto limitado de arquivos e os envia ao provedor de IA configurado. O token GitHub nunca é incluído no prompt. Trate código privado como informação sensível.
-- **Project Factory:** usa a mesma conta, mas lê a seleção separada de repositório de build. A compilação só aceita repositório privado com permissão de escrita e mantém o consentimento de envio/execução separado.
-- **Build remoto:** o Núcleo pode criar ou atualizar o workflow próprio do build, enviar o ZIP do projeto para uma branch temporária e executar Gradle no GitHub Actions. Não envia a chave de API da OpenRouter para o runner. Revise o código e os scripts Gradle antes de consentir.
-- **Limite atual:** o chat lê o repositório para contexto, mas não grava alterações arbitrárias nos arquivos do repositório diretamente. As respostas e alterações propostas continuam no chat/Project Factory; a função de build remoto envia fontes do projeto para o repositório privado de build.
+## Repository roles in the app
 
-## Tratamento de falhas
+- **Chat-context repository:** read-only source context for a particular message, only when the chat context option is enabled.
+- **Build repository:** a separate private repository with write and Actions/workflow permissions. It stores the project ZIP/build workflow used for remote compilation.
 
-- Client ID inválido ou Device Flow desligado: corrija o OAuth App e inicie a conexão novamente.
-- Repositório não listado: confirme que sua conta possui acesso a ele e toque em Atualizar.
-- HTTP 401: reconecte a conta.
-- HTTP 403: verifique autorização da organização, escopos e limites da API.
-- Repositório público selecionado para build: escolha um repositório privado.
-- Build falhou: abra o link da execução do GitHub Actions e revise o log; o app não deve tratar fontes ou um job falho como APK.
+Using separate repositories is recommended to keep generated build files and workflows away from the main source repository.
+
+## Privacy notes
+
+The chat never includes the GitHub access token in the prompt. When context is enabled, limited source-tree and source-file contents are sent to the configured AI provider together with the request. That provider's data-handling terms apply.
+
+The connector is designed for personal alpha use. For wider distribution, migrate to a GitHub App with granular, explicitly scoped repository permissions instead of relying on a broad OAuth token.
