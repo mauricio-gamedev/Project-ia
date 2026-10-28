@@ -1,24 +1,38 @@
 # Session Checkpoint — Núcleo AI
 
 **Last verified:** 2026-10-28  
-**Current release line:** `0.7.1-alpha` (`versionCode 11`)  
+**Current main release:** `0.7.1-alpha` (`versionCode 11`)  
+**Consolidated candidate in PR #8:** `0.8.1-alpha` (`versionCode 13`)  
 **Default branch:** `main`  
-**Handoff status:** repository documentation consolidated; application branch state is stable; administrative metadata and branch protection remain unfinished.
+**Handoff status:** PR #8 contains Project Factory validation/repair, GitHub session/build synchronization, chat readability/OLED, and provider cooldown recovery. CI for the latest candidate head must be confirmed before distribution. PR #8 is open; protected `main` and disabled auto-merge currently block integration through the connected GitHub path.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
 ## Current confirmed state
 
 - Repository: [mauricio-gamedev/Project-ia](https://github.com/mauricio-gamedev/Project-ia)
-- `main` HEAD at checkpoint creation: `665c72fa2fd9a195e0a4ebfec3f0d18553ba6487`
+- Current live `main` HEAD: `773ee754c88d9555e3f9f63b6527d10ae1c8e2c4`.
 - Latest merged consolidation: [PR #4](https://github.com/mauricio-gamedev/Project-ia/pull/4), merged into `main`.
 - PRs #1 and #2 were closed as superseded. Their intended feature work is included through the consolidation commit; do not reopen or repeat them without checking the live diff.
-- Open PRs at checkpoint creation: none.
-- Android app: `io.github.astromg01.nucleo`, version `0.7.1-alpha`, `versionCode 11`.
-- The owner reported that the 0.7.1-alpha APK installed/launched successfully and the GitHub connector worked after reauthorization.
-- GitHub Actions run [#166](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40636208614) passed for the current `main` commit, including tests, APK build, artifact/checksum verification, and upload.
+- Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (consolidated fix) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
+- Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.1-alpha`, `versionCode 13` so it can upgrade earlier alpha installs.
+- The owner reported the previously installed alpha and GitHub connector worked; no end-to-end device test of PR #8 has yet been reported.
+- PR #8 head at the last refresh: `ff42c7957cfb3480bb219bf595a60f12aafd93c3`. GitHub Actions run [#?](https://github.com/mauricio-gamedev/Project-ia/actions) for that exact head was in progress; older green runs predate the final helper-file consolidation and must not be treated as validation of this candidate.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
+
+## Current consolidated implementation — PR #8
+
+- PR: [#8 Fix Project Factory generation and GitHub build synchronization](https://github.com/mauricio-gamedev/Project-ia/pull/8).
+- Source candidate: `0.8.1-alpha` / `versionCode 13`; application ID and stable signing configuration remain unchanged.
+- AI generation now retries malformed/incomplete JSON manifests once using the parser's rejection reason. It rejects missing/blank/duplicate/oversized file payloads.
+- Project preflight checks source delimiters, JSON/XML validity (rejecting DTD/entities), Android scaffold files, placeholder launchers, and Manifest-to-Activity consistency. It performs a bounded structural repair, preserves the previous draft, revalidates the candidate, and blocks cloud builds when unresolved structural issues remain.
+- GitHub UI synchronizes the stored OAuth session on resume, verifies the actual account through GitHub `/user`, keeps account-authentication state separate from repository selection/permissions, and clears rejected credentials without erasing saved repository selections.
+- Cloud build diagnostics capture the relevant Gradle job logs, retain final error lines, redact common credential-like values, and only send diagnostics to AI after explicit consent. A repair remains a proposal and must be built again before it counts as verified.
+- Consolidated chat updates include wider/readable assistant messages, message copy/selection, safe Markdown styling, persisted OLED Black, and cooldown invalidation when the primary model/endpoint/key changes.
+- Tests cover manifest parsing/retry, structural validation, Android launcher matching, diagnostic sanitization, cooldown invalidation, and Markdown formatting.
+- The last failed CI attempt after the chat-screen consolidation correctly exposed missing theme/formatter source files. Those files and their tests have now been restored on the branch; the CI for the latest head must pass before the candidate is distributed.
+- The latest known repository state includes active ruleset [protect main](https://github.com/mauricio-gamedev/Project-ia/rules/26013092). It has an `update` rule, no bypass actors, and `current_user_can_bypass = never`. The connected integration's merge attempt on the prior PR returned HTTP 405; auto-merge is disabled. Do not bypass/disable this rule without an authorized owner/admin action.
 
 ## Repository presentation already landed
 
@@ -48,25 +62,26 @@ Suggested topics (use only if the owner approves/current conventions allow): `an
 
 ### 2. Protect `main`
 
-At the last live branch read, `main` was **not protected** (`protected: false`, protection disabled, required checks empty). The integration's GET request for branch protection returned HTTP 403 (`Resource not accessible by integration`), and the repository's rulesets endpoint returned an empty list. No write operation for branch protection/rulesets was exposed by the available GitHub connector.
+Current live state (2026-10-28):
+- `main` reports `protected: true`.
+- Active repository ruleset [protect main](https://github.com/mauricio-gamedev/Project-ia/rules/26013092), ID `26013092`, targets `~DEFAULT_BRANCH`.
+- Rules include deletion, non-fast-forward, update restriction, an empty required-status-check list, and a code-coverage rule without a numeric threshold.
+- `current_user_can_bypass` is `never` and `bypass_actors` is empty.
+- A connected-identity merge attempt on PR #7 returned HTTP 405 (`Cannot update this protected ref`). Repository auto-merge is disabled. Do not use force pushes or attempt to bypass the rule.
+- An authorized owner/admin must adjust the ruleset or repository merge configuration if normal PR merges should be allowed; re-query server state before reporting any change.
 
-The presence of `.github/CODEOWNERS` does not enforce review by itself. Do not call the branch protected until live GitHub metadata confirms the rule.
 
-On resume:
-1. Re-discover current connector actions; check whether an admin-authorized branch-protection/ruleset operation is now available.
-2. If available, create a conservative `main` ruleset/protection policy: block force pushes and deletion; require PRs; require the Android CI check on the latest PR head; require code-owner review only if review workflow and ownership expectations are actually workable for this solo-maintained project.
-3. Be careful not to create a rule that locks the owner out or makes all merges impossible. Since this repository appears to be solo-maintained, do not require approval from another human unless a second reviewer/team exists. A required CI check and PR-only merge policy may be the more workable minimum.
-4. Re-fetch the branch/ruleset endpoint after the attempted change. Report success only if server-side state confirms it.
-5. If no authorized write path exists, keep the limitation explicit and provide the owner with the exact minimum remaining admin step only then.
 
 ## Next-action queue
 
-1. **Resume from this checkpoint.** Refresh live `main`, PRs, branch protection, repository About/topics, and Actions state.
-2. Finish repository metadata (description/topics) via an authorized GitHub integration operation if available.
-3. Finish `main` protection via an authorized ruleset/branch-protection operation if available. Server-side verification is mandatory.
-4. If those admin operations remain unavailable, avoid changing unrelated app code merely to work around permissions. Record the actual blocker and leave the documentation/CI state intact.
-5. Once repository settings are handled, ask what next app feature the owner wants to build; do not restart the completed documentation task.
-6. For any new engineering task: branch from fresh `main`, inspect existing code/tests, implement, validate, review, open PR, wait for CI on exact head SHA, merge only after checks pass, and update this checkpoint.
+1. Verify the latest Android CI run for PR #8's exact current head SHA. If it fails, fix the reported issue and repeat until the candidate passes.
+2. Download the APK artifact from the matching successful run and verify the signing mode/checksum. Do not use an artifact from a previous source SHA.
+3. Run on-device smoke tests for generation with one incomplete response, structural repair, GitHub session sync, private build repository validation, remote APK build, and AI-assisted build-log repair.
+4. If PR #8 is green but cannot merge, keep it open and report the active `protect main` update rule/disabled auto-merge blocker; an authorized owner/admin must adjust it.
+5. Repository description/topics remain unconfigured because no authorized metadata-write path was exposed. Do not work around that with unrelated code.
+6. For future work, start from fresh `main`, inspect source/tests, implement, validate on the exact SHA, review, open PR, and update this checkpoint.
+
+
 
 ## Safety and accuracy notes
 
