@@ -44,7 +44,13 @@ internal fun formatChatMarkdown(markdown: String): AnnotatedString {
             val heading = Regex("^#{1,3}\\s+").find(rawLine)?.value
             var line = if (heading != null) rawLine.removePrefix(heading) else rawLine
             if (heading != null) {
-                withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp)) {
+                withStyle(
+                    SpanStyle(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0xFFC6B9FF),
+                    ),
+                ) {
                     appendInlineMarkdown(line)
                 }
                 return@forEach
