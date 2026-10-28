@@ -5,6 +5,7 @@ import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import io.github.astromg01.nucleo.core.security.SecretStore
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -23,6 +24,13 @@ data class GitHubDeviceAuthorization(
     val verificationUri: String,
     val expiresInSeconds: Long,
     val intervalSeconds: Long,
+)
+
+data class GitHubOAuthTokens(
+    val accessToken: String,
+    val refreshToken: String? = null,
+    val expiresInSeconds: Long? = null,
+    val refreshTokenExpiresInSeconds: Long? = null,
 )
 
 data class GitHubRepository(
@@ -100,7 +108,7 @@ class GitHubConnector(
         clientId: String,
         authorization: GitHubDeviceAuthorization,
         onStatus: (String) -> Unit = {},
-    ): String = withContext(Dispatchers.IO) {
+    ): GitHubOAuthTokens = withContext(Dispatchers.IO) {
         validateClientId(clientId)
         val deadline = System.nanoTime() + authorization.expiresInSeconds * 1_000_000_000L
         var interval = authorization.intervalSeconds.coerceIn(5L, 30L)
@@ -114,7 +122,14 @@ class GitHubConnector(
                     "grant_type" to DEVICE_GRANT_TYPE,
                 ),
             ))
-            json.optString("access_token").takeIf { it.isNotBlank() }?.let { return@withContext it }
+            json.optString("access_token").takeIf { it.isNotBlank() }?.let { accessToken ->
+                return@withContext GitHubOAuthTokens(
+                    accessToken = accessToken,
+                    refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() },
+                    expiresInSeconds = json.optLong("expires_in", 0L).takeIf { it > 0L },
+                    refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L).takeIf { it > 0L },
+                )
+            }
             when (json.optString("error")) {
                 "authorization_pending" -> onStatus("Aguardando você autorizar o Núcleo AI no GitHub…")
                 "slow_down" -> {
@@ -130,6 +145,34 @@ class GitHubConnector(
         }
         throw IOException("O tempo de autorização expirou. Inicie a conexão novamente.")
     }
+
+    suspend fun refreshAccessToken(clientId: String, refreshToken: String): GitHubOAuthTokens =
+        withContext(Dispatchers.IO) {
+            validateClientId(clientId)
+            validateAccessToken(refreshToken)
+            val json = JSONObject(postForm(
+                ACCESS_TOKEN_URL,
+                mapOf(
+                    "client_id" to clientId.trim(),
+                    "grant_type" to "refresh_token",
+                    "refresh_token" to refreshToken,
+                ),
+            ))
+            val access = json.optString("access_token").takeIf { it.isNotBlank() }
+                ?: throw IOException(
+                    if (json.optString("error") == "bad_refresh_token") {
+                        "A sessão GitHub expirou. Reconecte sua conta para continuar."
+                    } else {
+                        "O GitHub não conseguiu renovar a sessão. Reconecte sua conta se o problema continuar."
+                    },
+                )
+            GitHubOAuthTokens(
+                accessToken = access,
+                refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() },
+                expiresInSeconds = json.optLong("expires_in", 0L).takeIf { it > 0L },
+                refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L).takeIf { it > 0L },
+            )
+        }
 
     suspend fun listRepositories(accessToken: String): List<GitHubRepository> =
         withContext(Dispatchers.IO) {
@@ -353,5 +396,51 @@ class GitHubConnectorPreferences(context: Context) {
         private const val KEY_URL = "selected_url"
         private const val KEY_DESCRIPTION = "selected_description"
         private const val KEY_CAN_PUSH = "selected_can_push"
+    }
+}
+
+/** Keeps OAuth tokens encrypted and refreshes short-lived access tokens on demand. */
+class GitHubOAuthSession(
+    context: Context,
+    private val secretStore: io.github.astromg01.nucleo.core.security.SecretStore,
+    private val connector: GitHubConnector = GitHubConnector(),
+) {
+    private val preferences = context.getSharedPreferences("github_connector_session", Context.MODE_PRIVATE)
+    private val connectorPreferences = GitHubConnectorPreferences(context)
+
+    @Synchronized
+    fun save(tokens: GitHubOAuthTokens) {
+        secretStore.saveApiKey(GITHUB_OAUTH_TOKEN_ID, tokens.accessToken)
+        if (!tokens.refreshToken.isNullOrBlank()) {
+            secretStore.saveApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID, tokens.refreshToken)
+        } else {
+            secretStore.removeApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
+        }
+        val expiry = tokens.expiresInSeconds?.let { System.currentTimeMillis() + it * 1_000L } ?: 0L
+        preferences.edit().putLong(KEY_ACCESS_EXPIRY, expiry).apply()
+    }
+
+    suspend fun validAccessToken(): String? {
+        val token = secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) ?: return null
+        val expiry = preferences.getLong(KEY_ACCESS_EXPIRY, 0L)
+        if (expiry == 0L || System.currentTimeMillis() < expiry - REFRESH_EARLY_MILLIS) return token
+        val refresh = secretStore.readApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
+            ?: throw IOException("A sessão GitHub expirou. Reconecte sua conta em Configurações.")
+        val refreshed = connector.refreshAccessToken(connectorPreferences.clientId(), refresh)
+        save(refreshed)
+        return refreshed.accessToken
+    }
+
+    fun disconnect() {
+        secretStore.removeApiKey(GITHUB_OAUTH_TOKEN_ID)
+        secretStore.removeApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
+        preferences.edit().remove(KEY_ACCESS_EXPIRY).apply()
+        connectorPreferences.clearSelectedRepository()
+    }
+
+    companion object {
+        const val GITHUB_OAUTH_REFRESH_TOKEN_ID = "github_oauth_refresh_token"
+        private const val KEY_ACCESS_EXPIRY = "access_expires_at"
+        private const val REFRESH_EARLY_MILLIS = 2 * 60 * 1_000L
     }
 }
