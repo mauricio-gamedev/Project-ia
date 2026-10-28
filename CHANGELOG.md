@@ -1,6 +1,32 @@
 # Changelog
 
+All notable project changes are documented here. Dates use ISO-style calendar dates.
+
+## 0.7.1-alpha — 2026-10-28
+
+### GitHub OAuth reliability
+- Persisted the pending OAuth Device Flow code encrypted with Android Keystore-backed storage so authorization can resume after Android backgrounds or recreates the app.
+- Restored the GitHub connection state on screen resume and refreshed repository lists when a stored session is present.
+- Added recovery for transient authorization-polling and repository-listing failures without treating an already-saved token as disconnected.
+- Added a manual “Resume verification” action when polling needs another attempt.
+
+### Chat continuity and memory
+- Improved prompt instructions to resolve short follow-up messages against recent conversation context instead of treating them as unrelated topics.
+- Filtered the chat transcript to actual user/assistant turns and expanded the recent history window.
+- Added a compact, durable summary of the main conversation, refreshed in the background after enough complete turns.
+- Added explicit local memory commands such as “Remember that …” for supported facts and preferences. Obvious credential-like content is rejected.
+- Ranked saved chat facts/preferences by lexical relevance and excluded unrelated task-planning memories from chat context.
+- Kept active chat requests alive when navigating between app screens.
+- Added recovery for an interrupted user turn when the message was persisted but its assistant response was not. Recovery reuses the existing message and does not silently resend optional GitHub repository context.
+
+### Release and validation
+- Updated the Android app to version 0.7.1-alpha (versionCode 11).
+- Added unit tests for the explicit-memory policy, credential rejection, relevance filtering, and summary thresholds.
+- Validated unit tests, APK assembly, artifact checks, checksum generation, and stable signing configuration through GitHub Actions. A successful CI run is not a substitute for a device-level smoke test.
+
 ## 0.7.0-alpha — 2026-10-28
+
+
 
 ### Creator workspace
 - Added a creation mode inside Chat with formats for video scripts, posts, live descriptions, content ideas, editorial calendars and visual prompts.
