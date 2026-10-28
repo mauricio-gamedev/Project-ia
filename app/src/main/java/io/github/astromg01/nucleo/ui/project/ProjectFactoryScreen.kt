@@ -63,6 +63,8 @@ import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
 import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.ProjectGenerationValidator
+import io.github.astromg01.nucleo.domain.project.ProjectGenerationRepairService
 import io.github.astromg01.nucleo.domain.project.AndroidProjectScaffold
 import io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter
 import io.github.astromg01.nucleo.domain.project.BuiltAndroidArtifact
@@ -113,6 +115,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var generationValidationIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var verifyingBuildTarget by remember { mutableStateOf(false) }
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
@@ -162,6 +165,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     fun discardCurrentDraft(showStatus: Boolean = false) {
         val previous = stagedProject ?: return
         stagedProject = null
+        generationValidationIssues = emptyList()
         visibleFileLimit = MAX_VISIBLE_FILES
         previewFile = null
         preview = null
@@ -435,6 +439,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 } else if (!generating && !exporting && !buildingApk && !verifyingBuildTarget) {
                     clearReviewState()
                     discardCurrentDraft()
+                    generationValidationIssues = emptyList()
                     builtApk?.file?.delete()
                     builtApk = null
                     buildConsent = false
@@ -490,11 +495,47 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 description = requestedDescription,
                                 profile = requestedProfile,
                             )
-                            val scaffold = AndroidProjectScaffold.complete(parsedDraft)
+                            val initialScaffold = AndroidProjectScaffold.complete(parsedDraft)
+                            val initialIssues = ProjectGenerationValidator.validate(initialScaffold.draft)
+                            var finalDraft = initialScaffold.draft
+                            var repairNote = ""
+
+                            if (initialIssues.isNotEmpty()) {
+                                status = "Detectei ${initialIssues.size} problema(s) estrutural(is). Tentando uma correção automática isolada antes de preparar o projeto…"
+                                try {
+                                    val repair = ProjectGenerationRepairService().repairOnce(
+                                        draft = initialScaffold.draft,
+                                        issues = initialIssues,
+                                    ) { repairRequest ->
+                                        try {
+                                            container.modelRouter.generate(repairRequest)
+                                        } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                            if (error.statusCode == 400 && repairRequest.jsonObjectMode) {
+                                                container.modelRouter.generate(repairRequest.copy(jsonObjectMode = false))
+                                            } else {
+                                                throw error
+                                            }
+                                        }
+                                    }
+                                    finalDraft = AndroidProjectScaffold.complete(repair.draft).draft
+                                    repairNote = if (repair.attempted) {
+                                        " Correção automática: ${repair.summary}"
+                                    } else {
+                                        " Correção automática não executada: ${repair.summary}"
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (repairError: Exception) {
+                                    repairNote = " A correção automática não conseguiu terminar: ${repairError.message ?: "erro não detalhado"}."
+                                }
+                            }
+
+                            val finalIssues = ProjectGenerationValidator.validate(finalDraft)
                             val factory = ProjectFactory()
                             val staged = withContext(Dispatchers.IO) {
-                                factory.stage(scaffold.draft, stagingRoot)
+                                factory.stage(finalDraft, stagingRoot)
                             }
+                            generationValidationIssues = finalIssues
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
                             builtApk?.file?.delete()
@@ -502,20 +543,24 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                             buildConsent = false
                             val scaffoldNote = if (requestedProfile == ProjectProfile.ANDROID_APP) {
                                 buildString {
-                                    val added = scaffold.addedPaths.size
-                                    val replaced = scaffold.replacedPaths.size
+                                    val added = initialScaffold.addedPaths.size
+                                    val replaced = initialScaffold.replacedPaths.size
                                     if (added > 0 || replaced > 0) {
-                                        append(" Base Android completada: $added arquivo(s) adicionados, $replaced configurado(s) corrigido(s). ")
+                                        append(" Base Android completada: $added arquivo(s) adicionados, $replaced configuração(ões) corrigida(s).")
                                     }
-                                    if (scaffold.defaultLauncherAdded) {
-                                        append("Foi criada uma Activity inicial de contingência; revise se a funcionalidade pedida foi ligada à tela inicial. ")
+                                    if (initialScaffold.defaultLauncherAdded) {
+                                        append(" Foi criada uma Activity de contingência; a validação bloqueia build até sua funcionalidade estar implementada.")
                                     }
                                 }
                             } else {
                                 ""
                             }
-                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote Ainda não houve compilação."
-                            statusIsError = false
+                            status = if (finalIssues.isEmpty()) {
+                                "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote$repairNote A validação estática passou; ainda falta executar o Gradle para confirmar que compila."
+                            } else {
+                                "Rascunho salvo em staging privado com ${staged.files.size} arquivos, mas ${finalIssues.size} problema(s) permanecem. A compilação está bloqueada até corrigir os itens listados.$scaffoldNote$repairNote"
+                            }
+                            statusIsError = finalIssues.isNotEmpty()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
@@ -549,6 +594,37 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             style = MaterialTheme.typography.bodyMedium,
             color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (generationValidationIssues.isNotEmpty()) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Validação estrutural: ${generationValidationIssues.size} problema(s)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    generationValidationIssues.take(12).forEachIndexed { index, issue ->
+                        Text(
+                            "${index + 1}. $issue",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (generationValidationIssues.size > 12) {
+                        Text(
+                            "Mais ${generationValidationIssues.size - 12} problema(s). Exporte o fonte para revisar todos os arquivos.",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    Text(
+                        "O Núcleo não vai marcar nem iniciar um APK enquanto esses problemas permanecerem.",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
 
         if (profile == ProjectProfile.ANDROID_APP) {
             Card(Modifier.fillMaxWidth()) {
@@ -711,11 +787,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     }
                                 }
                             },
-                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating,
+                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating &&
+                                generationValidationIssues.isEmpty(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (buildingApk) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                            else Text("Compilar APK na nuvem")
+                            else Text(if (generationValidationIssues.isEmpty()) "Compilar APK na nuvem" else "Corrija a validação antes de compilar")
                         }
                         if (buildingApk) {
                             androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
