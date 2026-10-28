@@ -25,12 +25,22 @@ class ProviderPreferences(context: Context) {
     )
 
     fun save(configuration: ProviderConfiguration) {
-        preferences.edit()
-            .putString(KEY_PROVIDER_NAME, configuration.providerName.trim().ifEmpty { "OpenAI-compatible" })
-            .putString(KEY_BASE_URL, configuration.baseUrl.trim().trimEnd('/'))
-            .putString(KEY_MODEL, configuration.modelName.trim())
-            .putBoolean(KEY_ENABLED, configuration.enabled)
-            .apply()
+        val previous = load()
+        val normalized = configuration.copy(
+            providerName = configuration.providerName.trim().ifEmpty { "OpenAI-compatible" },
+            baseUrl = configuration.baseUrl.trim().trimEnd('/'),
+            modelName = configuration.modelName.trim(),
+            id = ProviderConfiguration.DEFAULT_PROVIDER_ID,
+        )
+        val editor = preferences.edit()
+            .putString(KEY_PROVIDER_NAME, normalized.providerName)
+            .putString(KEY_BASE_URL, normalized.baseUrl)
+            .putString(KEY_MODEL, normalized.modelName)
+            .putBoolean(KEY_ENABLED, normalized.enabled)
+        if (ProviderConfigurationChangePolicy.shouldClearCooldown(previous, normalized)) {
+            editor.remove(cooldownKey(ProviderConfiguration.DEFAULT_PROVIDER_ID))
+        }
+        editor.apply()
     }
 
     /** Alternative routes, ordered by the priority chosen in Settings. The legacy route remains primary. */
