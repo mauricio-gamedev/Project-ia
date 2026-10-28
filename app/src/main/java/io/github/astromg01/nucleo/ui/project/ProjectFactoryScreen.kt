@@ -1267,62 +1267,7 @@ private fun parseProjectDraft(
     name: String,
     description: String,
     profile: ProjectProfile,
-): ProjectDraft {
-    val trimmed = responseText.trim()
-    val start = trimmed.indexOf('{')
-    val end = trimmed.lastIndexOf('}')
-    if (start < 0 || end <= start) {
-        val reason = if (trimmed.isNotEmpty() && trimmed.last() != '}') {
-            "A resposta parece ter sido cortada antes do fim."
-        } else {
-            "A resposta não contém um objeto JSON completo."
-        }
-        throw IllegalArgumentException(
-            reason + " Tente gerar novamente. Se persistir, escolha um modelo com suporte a JSON."
-        )
-    }
-
-    val jsonText = trimmed.substring(start, end + 1)
-    val json = try {
-        JSONObject(jsonText)
-    } catch (error: Exception) {
-        val detail = error.message
-            ?.replace(Regex("[\\r\\n]+"), " ")
-            ?.take(140)
-            ?.let { " Detalhe do parser: " + it + "." }
-            .orEmpty()
-        val hint = if (trimmed.lastOrNull() != '}') {
-            " A resposta pode ter sido interrompida pelo limite de saída."
-        } else {
-            " O modelo pode ter produzido aspas ou quebras de linha sem escape dentro do conteúdo de um arquivo."
-        }
-        throw IllegalArgumentException(
-            "A IA devolveu um manifesto JSON inválido." + hint + detail +
-                " Tente novamente; o Núcleo agora solicita modo JSON quando o provedor suporta esse recurso.",
-            error,
-        )
-    }
-
-    val filesJson = json.optJSONArray("files")
-        ?: throw IllegalArgumentException("O manifesto JSON não contém uma lista 'files' válida.")
-    require(filesJson.length() in 1..ProjectFactory.MAX_FILES) {
-        "O manifesto precisa conter entre 1 e " + ProjectFactory.MAX_FILES + " arquivos."
-    }
-    val files = (0 until filesJson.length()).map { index ->
-        val entry = filesJson.optJSONObject(index)
-            ?: throw IllegalArgumentException("A entrada de arquivo " + (index + 1) + " não é um objeto JSON.")
-        val path = entry.optString("path", "")
-        val content = entry.optString("content", "")
-        require(path.isNotBlank()) { "A entrada de arquivo " + (index + 1) + " não contém caminho." }
-        GeneratedProjectFile(path = path, content = content)
-    }
-    return ProjectDraft(
-        name = name,
-        profile = profile,
-        description = description,
-        files = files,
-    )
-}
+): ProjectDraft = ProjectManifestParser.parse(responseText, name, description, profile)
 
 private fun exportStagedProjectWithAllFilesAccess(
     context: Context,
