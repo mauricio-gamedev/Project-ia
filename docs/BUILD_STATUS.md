@@ -12,7 +12,7 @@ Expected local output after a successful build:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-The app package ID is io.github.astromg01.nucleo. The current development version is 0.7.1-alpha with versionCode 11.
+The app package ID is io.github.astromg01.nucleo. The current development version is 0.8.1-alpha with versionCode 13.
 
 ## Reference validation
 
