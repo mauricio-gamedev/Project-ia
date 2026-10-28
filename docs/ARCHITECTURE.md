@@ -45,6 +45,8 @@ The app uses OAuth Device Flow. Pending device authorization data is stored encr
 
 Project Factory parses AI output as a strict file manifest and retries malformed/incomplete manifests once. A shared source validator checks supported static structure and Android cross-file bindings; an AI repair is re-staged and validated before activation. Failed drafts may stay in isolated private staging for inspection, but a revision with unresolved findings cannot start a remote build. Static checks are not the compiler.
 
+The static AI code-review parser accepts a balanced root JSON report, including one wrapped by Markdown/text, and retries once only for malformed or schema-invalid output; provider/network failures are not repeated. Findings are limited to the reviewed staging paths.
+
 The GitHub connector verifies the actual account identity against /user rather than trusting the presence of an encrypted token alone. Expired/rejected credentials can be cleared without deleting the repository selections; repository access, permission, quota, and branch-protection errors have distinct messages. A remote Android build still requires explicit consent, a private repository, a successful Gradle workflow, and verified artifact/checksum evidence.
 
 Project Factory validates generated paths and content before staging/export. For supported Android scaffolds, a separate remote build workflow can run Gradle with JDK 17 and Android SDK 36 in a user-selected private GitHub repository. Source generation alone is never reported as a successful APK build; the remote workflow and artifact verification must succeed.

@@ -131,12 +131,17 @@ class ProjectCodeReviewService(
         partial: Boolean,
     ): ProjectCodeReviewReport {
         val json = parseObject(responseText, "A resposta de revisão não contém JSON válido.")
-        val summary = json.optString("summary", "A revisão não forneceu um resumo.").take(MAX_SUMMARY_CHARS)
+        val rawSummary = json.opt("summary")
+        require(rawSummary is String && rawSummary.isNotBlank()) {
+            "O relatório de revisão não contém um resumo 'summary' válido."
+        }
+        val summary = rawSummary.take(MAX_SUMMARY_CHARS)
         val jsonFindings = json.optJSONArray("findings")
+            ?: throw IllegalArgumentException("O relatório de revisão não contém uma lista 'findings' válida.")
         val findings = mutableListOf<CodeReviewFinding>()
-        if (jsonFindings != null) {
-            for (index in 0 until minOf(jsonFindings.length(), MAX_FINDINGS)) {
-                val item = jsonFindings.optJSONObject(index) ?: continue
+        for (index in 0 until minOf(jsonFindings.length(), MAX_FINDINGS)) {
+                val item = jsonFindings.optJSONObject(index)
+                    ?: throw IllegalArgumentException("O achado " + (index + 1) + " não é um objeto JSON válido.")
                 val path = item.optString("path", "").take(MAX_PATH_CHARS)
                 if (path !in allowedPaths) continue
                 val severity = item.optString("severity", "warning").lowercase()
@@ -146,7 +151,6 @@ class ProjectCodeReviewService(
                 val recommendation = item.optString("recommendation", "").trim().take(MAX_FINDING_TEXT_CHARS)
                 if (problem.isBlank()) continue
                 findings += CodeReviewFinding(severity, path, lineValue, problem, recommendation)
-            }
         }
         return ProjectCodeReviewReport(
             summary = summary,
@@ -231,15 +235,51 @@ class ProjectCodeReviewService(
     }
 
     private fun parseObject(text: String, errorMessage: String): JSONObject {
-        val trimmed = text.trim()
-        val start = trimmed.indexOf('{')
-        val end = trimmed.lastIndexOf('}')
-        if (start < 0 || end <= start) throw IllegalArgumentException(errorMessage)
-        return try {
-            JSONObject(trimmed.substring(start, end + 1))
-        } catch (error: Exception) {
-            throw IllegalArgumentException(errorMessage, error)
+        if (text.isBlank() || text.length > MAX_REVIEW_RESPONSE_CHARS) {
+            throw IllegalArgumentException(errorMessage)
         }
+        var objectStart = -1
+        var depth = 0
+        var insideString = false
+        var escaped = false
+        var lastParseError: Exception? = null
+        for (index in text.indices) {
+            val character = text[index]
+            if (objectStart < 0) {
+                if (character == '{') {
+                    objectStart = index
+                    depth = 1
+                    insideString = false
+                    escaped = false
+                }
+                continue
+            }
+            if (insideString) {
+                when {
+                    escaped -> escaped = false
+                    character == '\\' -> escaped = true
+                    character == '"' -> insideString = false
+                }
+                continue
+            }
+            when (character) {
+                '"' -> insideString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        val candidate = text.substring(objectStart, index + 1)
+                        try {
+                            return JSONObject(candidate)
+                        } catch (error: Exception) {
+                            lastParseError = error
+                            objectStart = -1
+                        }
+                    }
+                }
+            }
+        }
+        throw IllegalArgumentException(errorMessage, lastParseError)
     }
 
     private companion object {
@@ -247,6 +287,7 @@ class ProjectCodeReviewService(
         const val REVIEW_CHARS_PER_FILE = 4_000
         const val MAX_REVIEW_TOTAL_CHARS = 30_000
         const val MAX_REVIEW_OUTPUT_TOKENS = 4_000
+        const val MAX_REVIEW_RESPONSE_CHARS = 64_000
         const val MAX_REPAIR_OUTPUT_TOKENS = 8_000
         const val MAX_FINDINGS = 30
         const val MAX_SUMMARY_CHARS = 2_000

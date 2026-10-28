@@ -64,6 +64,7 @@ import io.github.astromg01.nucleo.core.ai.AiTaskType
 import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
 import io.github.astromg01.nucleo.domain.project.ProjectDraft
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
+import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewGenerationService
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
 import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
@@ -1320,15 +1321,25 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                             )
                                         }
                                         val request = reviewer.buildReviewRequest(stagedForReview, descriptionForReview, snapshot)
-                                        val response = container.modelRouter.generate(request)
-                                        val report = reviewer.parseReviewResponse(
-                                            responseText = response.text,
+                                        val reviewResult = ProjectCodeReviewGenerationService(reviewer).review(
+                                            request = request,
                                             allowedPaths = snapshot.files.map { it.path }.toSet(),
                                             partial = snapshot.truncatedPaths.isNotEmpty() || snapshot.omittedFileCount > 0,
+                                            generateResponse = { reviewRequest ->
+                                                container.modelRouter.generate(reviewRequest)
+                                            },
                                         )
+                                        val response = reviewResult.response
+                                        val report = reviewResult.report
                                         reviewSnapshot = snapshot
                                         reviewReport = report
-                                        status = "Revisão concluída por ${response.providerName}/${response.modelName}: ${report.findings.size} achado(s). Nenhum código foi executado."
+                                        val retryNote = if (reviewResult.attempts > 1) {
+                                            " (JSON recuperado em " + reviewResult.attempts + " tentativas)"
+                                        } else {
+                                            ""
+                                        }
+                                        status = "Revisão concluída por " + response.providerName + "/" + response.modelName +
+                                            retryNote + ": " + report.findings.size + " achado(s). Nenhum código foi executado."
                                         statusIsError = false
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled

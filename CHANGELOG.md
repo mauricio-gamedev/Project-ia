@@ -3,6 +3,14 @@
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
 
+## 0.8.2-alpha — 2026-10-28
+
+### AI code-review response recovery
+- Retry code review once when the model returns malformed JSON or a report that violates the required summary/findings contract; provider/network failures are not blindly repeated.
+- Safely extract a balanced JSON object from a response wrapped in Markdown or explanatory text, while respecting braces inside quoted strings.
+- Keep finding paths restricted to the reviewed staging snapshot and bound response parsing to a safe size.
+- Bump to versionCode 14 for an install-over update, preserving the application ID and stable signing configuration.
+
 ## 0.8.1-alpha — 2026-10-28
 
 ### Chat readability and provider recovery
