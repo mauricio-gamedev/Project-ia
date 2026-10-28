@@ -218,16 +218,14 @@ object ProjectGenerationValidator {
         TEMPLATE_STRING,
     }
 
-    private companion object {
-        const val PLACEHOLDER_IMPLEMENTATION_MARKER = "A funcionalidade específica ainda precisa de implementação"
-        val SOURCE_EXTENSIONS = setOf("kt", "java", "kts", "gradle", "js", "jsx", "ts", "tsx", "py", "css")
-        val TEMPLATE_STRING_EXTENSIONS = setOf("js", "jsx", "ts", "tsx")
-        val INCOMPLETE_STRING_STATES = setOf(
-            ScanState.DOUBLE_STRING,
-            ScanState.SINGLE_STRING,
-            ScanState.TRIPLE_DOUBLE,
-            ScanState.TRIPLE_SINGLE,
-            ScanState.TEMPLATE_STRING,
-        )
-    }
+    private const val PLACEHOLDER_IMPLEMENTATION_MARKER = "A funcionalidade específica ainda precisa de implementação"
+    private val SOURCE_EXTENSIONS = setOf("kt", "java", "kts", "gradle", "js", "jsx", "ts", "tsx", "py", "css")
+    private val TEMPLATE_STRING_EXTENSIONS = setOf("js", "jsx", "ts", "tsx")
+    private val INCOMPLETE_STRING_STATES = setOf(
+        ScanState.DOUBLE_STRING,
+        ScanState.SINGLE_STRING,
+        ScanState.TRIPLE_DOUBLE,
+        ScanState.TRIPLE_SINGLE,
+        ScanState.TEMPLATE_STRING,
+    )
 }
