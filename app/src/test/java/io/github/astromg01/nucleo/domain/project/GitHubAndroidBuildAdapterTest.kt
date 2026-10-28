@@ -1,6 +1,7 @@
 package io.github.astromg01.nucleo.domain.project
 
 import java.io.IOException
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -105,4 +106,22 @@ class GitHubAndroidBuildAdapterTest {
         }
         throw AssertionError("Expected IOException mentioning \"$expectedMessage\".")
     }
+
+
+    @Test
+    fun readsPlainTextLogFallbackAndKeepsTheFinalCompilerError() {
+        val log = (1..40).joinToString("\n") { "progress-$it" } + "\nBUILD FAILED: unresolved reference"
+        val decoded = readableRawBuildLog(log.toByteArray(Charsets.UTF_8), maxChars = 160)
+
+        assertTrue(decoded.orEmpty().contains("BUILD FAILED"))
+        assertTrue(decoded.orEmpty().contains("unresolved reference"))
+    }
+
+    @Test
+    fun doesNotExposeBinaryZipBytesAsPlainTextDiagnostics() {
+        val binary = byteArrayOf(0, 1, 2, 3, 4, 5, 0, 7)
+
+        assertNull(readableRawBuildLog(binary, maxChars = 200))
+    }
+
 }
