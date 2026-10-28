@@ -604,27 +604,33 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 jsonObjectMode = true,
                                 taskType = AiTaskType.CODE_GENERATION,
                             )
-                            val response = try {
-                                container.modelRouter.generate(request)
-                            } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
-                                // Some OpenAI-compatible endpoints do not implement JSON mode.
-                                // Retry once without the optional format parameter on HTTP 400 only.
-                                if (error.statusCode == 400 && request.jsonObjectMode) {
-                                    container.modelRouter.generate(request.copy(jsonObjectMode = false))
-                                } else {
-                                    throw error
-                                }
-                            }
-                            val parsedDraft = parseProjectDraft(
-                                responseText = response.text,
+                            val generation = ProjectManifestGenerationService().generate(
+                                request = request,
                                 name = requestedName,
                                 description = requestedDescription,
                                 profile = requestedProfile,
-                            )
-                            val initialScaffold = AndroidProjectScaffold.complete(parsedDraft)
+                            ) { attemptRequest ->
+                                try {
+                                    container.modelRouter.generate(attemptRequest)
+                                } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                    // Some OpenAI-compatible endpoints do not implement JSON mode.
+                                    // Retry without that optional format parameter on HTTP 400 only.
+                                    if (error.statusCode == 400 && attemptRequest.jsonObjectMode) {
+                                        container.modelRouter.generate(attemptRequest.copy(jsonObjectMode = false))
+                                    } else {
+                                        throw error
+                                    }
+                                }
+                            }
+                            val response = generation.response
+                            val initialScaffold = AndroidProjectScaffold.complete(generation.draft)
                             val initialIssues = ProjectGenerationValidator.validate(initialScaffold.draft)
                             var finalDraft = initialScaffold.draft
-                            var repairNote = ""
+                            var repairNote = if (generation.attempts > 1) {
+                                " A resposta inicial veio incompleta e o Núcleo pediu uma segunda geração antes de continuar."
+                            } else {
+                                ""
+                            }
 
                             if (initialIssues.isNotEmpty()) {
                                 status = "Detectei ${initialIssues.size} problema(s) estrutural(is). Tentando uma correção automática isolada antes de preparar o projeto…"
@@ -644,7 +650,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         }
                                     }
                                     finalDraft = AndroidProjectScaffold.complete(repair.draft).draft
-                                    repairNote = if (repair.attempted) {
+                                    repairNote += if (repair.attempted) {
                                         " Correção automática: ${repair.summary}"
                                     } else {
                                         " Correção automática não executada: ${repair.summary}"
@@ -652,7 +658,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (repairError: Exception) {
-                                    repairNote = " A correção automática não conseguiu terminar: ${repairError.message ?: "erro não detalhado"}."
+                                    repairNote += " A correção automática não conseguiu terminar: ${repairError.message ?: "erro não detalhado"}."
                                 }
                             }
 
