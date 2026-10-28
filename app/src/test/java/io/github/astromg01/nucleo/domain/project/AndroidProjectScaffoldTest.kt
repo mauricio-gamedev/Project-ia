@@ -232,6 +232,82 @@ class AndroidProjectScaffoldTest {
     }
 
     @Test
+    fun acceptsValidKotlinGradleFilesWithoutAddingCompetingGroovyDslFiles() {
+        val rootBuild = """
+            plugins {
+                id("com.android.application") version "8.13.2" apply false
+                id("org.jetbrains.kotlin.android") version "2.3.21" apply false
+                id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+            }
+        """.trimIndent()
+        val appBuild = """
+            plugins {
+                id("com.android.application")
+                id("org.jetbrains.kotlin.android")
+                id("org.jetbrains.kotlin.plugin.compose")
+            }
+            android {
+                namespace = "com.example.kotlin"
+                compileSdk = 36
+                defaultConfig {
+                    applicationId = "com.example.kotlin"
+                    minSdk = 26
+                    targetSdk = 36
+                }
+            }
+            dependencies {
+                implementation("androidx.core:core-ktx:1.17.0")
+            }
+        """.trimIndent()
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Kotlin Project",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile("settings.gradle.kts", """
+                        pluginManagement {
+                            repositories {
+                                google()
+                                mavenCentral()
+                                gradlePluginPortal()
+                            }
+                        }
+                        rootProject.name = "Kotlin Project"
+                        include(":app")
+                    """.trimIndent()),
+                    GeneratedProjectFile("build.gradle.kts", rootBuild),
+                    GeneratedProjectFile("app/build.gradle.kts", appBuild),
+                    GeneratedProjectFile("app/src/main/AndroidManifest.xml", """
+                        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                          <application android:label="Kotlin" android:allowBackup="false">
+                            <activity android:name="com.example.kotlin.MainActivity" android:exported="true">
+                              <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+                                <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                            </activity>
+                          </application>
+                        </manifest>
+                    """.trimIndent()),
+                    GeneratedProjectFile(
+                        "app/src/main/java/com/example/kotlin/MainActivity.kt",
+                        "package com.example.kotlin\nclass MainActivity : ComponentActivity() {}",
+                    ),
+                ),
+            ),
+        )
+        val files = result.draft.files.associateBy { it.path }
+
+        assertEquals(rootBuild, files["build.gradle.kts"]?.content)
+        assertEquals(appBuild, files["app/build.gradle.kts"]?.content)
+        assertFalse(result.replacedPaths.contains("build.gradle.kts"))
+        assertFalse(result.replacedPaths.contains("app/build.gradle.kts"))
+        assertFalse(files.containsKey("build.gradle"))
+        assertFalse(files.containsKey("app/build.gradle"))
+        assertFalse(result.defaultLauncherAdded)
+    }
+
+    @Test
     fun manifestLauncherIsRepairedToMatchTheActualActivityClass() {
         val draft = ProjectDraft(
             name = "Manifest mismatch",

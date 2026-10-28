@@ -173,7 +173,7 @@ object AndroidProjectScaffold {
             (content.contains(":app") || content.contains("'app'"))
 
     private fun isUsableRootBuild(content: String): Boolean =
-        Regex("""(?s)\bplugins\s*\{.*}""").containsMatchIn(content) &&
+        Regex("""(?s)\bplugins\s*\{.*\}""").containsMatchIn(content) &&
             content.contains("com.android.application") &&
             content.contains("8.13.2") &&
             content.contains("org.jetbrains.kotlin.android") &&
@@ -181,17 +181,17 @@ object AndroidProjectScaffold {
             content.contains("org.jetbrains.kotlin.plugin.compose")
 
     private fun isUsableAppBuild(content: String): Boolean =
-        Regex("""(?s)\bplugins\s*\{.*}""").containsMatchIn(content) &&
+        Regex("""(?s)\bplugins\s*\{.*\}""").containsMatchIn(content) &&
             content.contains("com.android.application") &&
             content.contains("org.jetbrains.kotlin.android") &&
             content.contains("org.jetbrains.kotlin.plugin.compose") &&
-            Regex("""(?s)\bandroid\s*\{.*}""").containsMatchIn(content) &&
+            Regex("""(?s)\bandroid\s*\{.*\}""").containsMatchIn(content) &&
             content.contains("namespace") &&
             Regex("""\bcompileSdk\b""").containsMatchIn(content) &&
             content.contains("applicationId") &&
             Regex("""\bminSdk\b""").containsMatchIn(content) &&
             Regex("""\btargetSdk\b""").containsMatchIn(content) &&
-            Regex("""(?s)\bdependencies\s*\{.*}""").containsMatchIn(content)
+            Regex("""(?s)\bdependencies\s*\{.*\}""").containsMatchIn(content)
 
     private fun isUsableManifest(content: String): Boolean =
         content.contains("<manifest") &&

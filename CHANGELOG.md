@@ -13,6 +13,7 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 - Added a manual AutoRouter action to clear temporary cooldowns across configured routes.
 
 ### Project Factory generation and validation
+- Escape closing braces in the Android Gradle `plugins`, `android`, and `dependencies` validation regexes to prevent an Android-runtime pattern syntax error; add a Kotlin DSL retention regression test.
 - Retry a malformed or incomplete AI file manifest once with the parser's exact rejection reason; provider/network failures are not blindly repeated.
 - Validate non-empty file payloads, unique paths, source delimiters, JSON/XML structure, Android Gradle configuration, launcher placeholders, and Manifest-to-Activity consistency before a project can be built.
 - Make XML validation compatible with Android's XML parser API surface while rejecting DTD/entity declarations and resolving external entities safely.
