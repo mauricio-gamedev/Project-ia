@@ -158,7 +158,15 @@ fun GitHubConnectorCard(container: AppContainer) {
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    status = error.message ?: "Conexão detectada, mas não foi possível carregar os repositórios."
+                    if (isGitHubSessionRejected(error)) {
+                        connected = false
+                        sessionVerified = false
+                        accountLogin = null
+                        repositories = emptyList()
+                    } else {
+                        connected = session.hasStoredAccessToken()
+                    }
+                    status = error.message ?: "A sessão não pôde ser verificada. Confira a rede e tente novamente."
                 } finally {
                     busy = false
                 }
@@ -302,6 +310,12 @@ fun GitHubConnectorCard(container: AppContainer) {
                             try { refresh() } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
+                                if (isGitHubSessionRejected(error)) {
+                                    connected = false
+                                    sessionVerified = false
+                                    accountLogin = null
+                                    repositories = emptyList()
+                                }
                                 status = error.message ?: "Não foi possível atualizar a lista."
                             } finally { busy = false }
                         }
@@ -331,4 +345,14 @@ fun GitHubConnectorCard(container: AppContainer) {
             )
         }
     }
+}
+
+
+private fun isGitHubSessionRejected(error: Throwable): Boolean {
+    if (error is GitHubConnector.GitHubConnectorException && error.statusCode == 401) return true
+    val message = error.message.orEmpty()
+    return message.contains("expirou", ignoreCase = true) ||
+        message.contains("bad_refresh_token", ignoreCase = true) ||
+        message.contains("não aceitou a conexão", ignoreCase = true) ||
+        message.contains("HTTP 401", ignoreCase = true)
 }
