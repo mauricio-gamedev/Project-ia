@@ -3,6 +3,7 @@ package io.github.astromg01.nucleo.domain.project
 import java.io.StringReader
 import java.util.ArrayDeque
 import java.util.Locale
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import org.json.JSONArray
 import org.json.JSONObject
@@ -196,16 +197,31 @@ object ProjectGenerationValidator {
         JSONArray(content)
     }.isSuccess
 
-    private fun isValidXml(content: String): Boolean = runCatching {
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            isXIncludeAware = false
-            isExpandEntityReferences = false
-        }
-        factory.newDocumentBuilder().parse(InputSource(StringReader(content)))
-    }.isSuccess
+    private fun isValidXml(content: String): Boolean {
+        // Generated XML does not need DTDs/entities. Reject them before parsing so that a
+        // platform XML parser that lacks a particular hardening flag cannot enable XXE.
+        if (Regex("""(?is)<!\\s*(DOCTYPE|ENTITY)\\b""").containsMatchIn(content)) return false
+        return runCatching {
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = true
+                // Android and JVM XML parser implementations differ. Apply each hardening
+                // option independently; one unsupported Xerces feature must not invalidate
+                // every otherwise-valid AndroidManifest.xml on a device.
+                runCatching { setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true) }
+                runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+                runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+                runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+                runCatching { isXIncludeAware = false }
+                runCatching { isExpandEntityReferences = false }
+                runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
+                runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
+            }
+            val builder = factory.newDocumentBuilder()
+            builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
+            builder.parse(InputSource(StringReader(content)))
+            true
+        }.getOrDefault(false)
+    }
 
     private enum class ScanState {
         NORMAL,
