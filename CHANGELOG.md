@@ -3,6 +3,22 @@
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
 
+## 0.8.3-alpha — 2026-10-28
+
+### Chat stability and conversation management
+- Add persistent independent chat sessions, a conversation selector, and locally parsed `/new`, `/clear`, `/delete`, `/chats`, and `/help` commands with Portuguese aliases.
+- Bound rendered chat history to recent messages and reuse Room flows across recompositions to reduce unnecessary subscriptions.
+- Remove automatic scroll-to-bottom on each message-count change and add an explicit jump-to-latest control.
+- Keep each session's durable summary separate; clearing/deleting one conversation preserves other sessions and general memories.
+
+### Provider and project compatibility
+- Reuse a shared HTTP client and normalize string or text-block responses from OpenAI-compatible providers.
+- Classify the actual second-request failure when JSON mode is rejected, avoiding a stale cooldown based on the initial HTTP 400.
+- Clear fallback-route cooldowns when an endpoint/model changes or the route is removed.
+- Synchronize selected common Android imports with Gradle declarations for Navigation Compose, Lifecycle, Coroutines, and OkHttp while preserving valid custom build scripts.
+- Reject AI review reports whose findings all point outside the authorized staging snapshot.
+- Bump to versionCode 15; application ID and stable signing remain unchanged.
+
 ## 0.8.2-alpha — 2026-10-28
 
 ### AI code-review response recovery

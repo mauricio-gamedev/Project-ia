@@ -15,6 +15,10 @@ Current limits: 300 files, 512 KiB per file, 4 MiB per project, and 240 characte
 An optional remote GitHub Actions adapter is available for supported Android scaffolds. It requires OAuth configuration, a separately selected private build repository, write/Actions permissions, and explicit consent. No complete Android build toolchain runs inside the app on the phone.
 
 ## Generation retry, validation, and repair boundaries
+
+- AI review responses whose findings all reference paths outside the staged allowlist are rejected and trigger the existing bounded format-repair retry.
+- The Android scaffold synchronizes selected common library imports with dependencies in valid Gradle scripts without replacing unrelated project configuration. This is not a universal dependency resolver; unrecognized third-party imports still require diagnostics and review.
+- Chat stores independent sessions in the existing local Room table, limits the rendered window, and keeps each session's summary separate. `/new`, `/clear`, `/delete`, `/chats`, and `/help` are local commands; auto-scroll-to-bottom is replaced by a manual control.
 - Static AI code review requires a valid root JSON report with a non-empty `summary` and a `findings` array. It can extract a balanced object from surrounding Markdown/text and respects braces inside JSON strings.
 - A malformed or schema-invalid review response gets one bounded retry with the parser's rejection reason. Provider/network errors are propagated without an extra review call; review findings remain restricted to the authorized staged paths.
 

@@ -28,14 +28,15 @@
 
 ## Chat request flow
 
-1. Persist the user message in Room.
-2. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
-3. Load a bounded chronological history of user/assistant turns.
-4. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
-5. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
-6. Route the request to a configured AI provider within its context budget.
-7. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
-8. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
+1. Select a persistent chat session and load only its bounded recent-message window.
+2. Persist the user message in Room.
+3. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
+4. Load a bounded chronological history of user/assistant turns.
+5. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
+6. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
+7. Route the request to a configured AI provider within its context budget.
+8. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
+9. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
 
 ## GitHub authorization flow
 

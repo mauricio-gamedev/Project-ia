@@ -2,9 +2,9 @@
 
 **Last verified:** 2026-10-28  
 **Current main release:** `0.7.1-alpha` (`versionCode 11`)  
-**Consolidated candidate in PR #8:** `0.8.2-alpha` (`versionCode 14`)  
+**Consolidated candidate in PR #8:** `0.8.3-alpha` (`versionCode 15`)  
 **Default branch:** `main`  
-**Handoff status:** PR #8 contains Project Factory validation/repair, GitHub session/build synchronization, chat readability/OLED, and provider cooldown recovery. The owner confirmed on-device that Project Factory generated a test project, the generated APK compiled, installed, and launched; the Android regex failure did not recur in that run. A separate AI code-review issue was then observed: a provider response did not contain the JSON contract expected by the parser. The bounded review-retry/parser fix is now included in the candidate; its latest CI must pass before retesting. PR #8 remains open; protected `main` and disabled auto-merge block integration through the connected GitHub path.
+**Handoff status:** PR #8 now combines Project Factory validation/repair, AI review recovery, provider compatibility, chat sessions/commands, and GitHub build synchronization. Device testing confirmed a generated test project's APK compiled, installed, and launched after the Android regex fix. Further stability changes add independent conversations, manual scrolling, shared provider handling, corrected fallback cooldown classification, selected common Android dependency synchronization, and stricter AI review path validation. The candidate must pass CI on its exact SHA before its APK is distributed. PR #8 remains open; protected `main` and disabled auto-merge block integration through the connected GitHub path.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
@@ -15,8 +15,8 @@
 - Latest merged consolidation: [PR #4](https://github.com/mauricio-gamedev/Project-ia/pull/4), merged into `main`.
 - PRs #1 and #2 were closed as superseded. Their intended feature work is included through the consolidation commit; do not reopen or repeat them without checking the live diff.
 - Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (consolidated fix) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
-- Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.2-alpha`, `versionCode 14` so it can upgrade earlier alpha installs.
-- The owner confirmed a generated test project's APK compiled, installed, and launched on-device. The latest AI code-review recovery still needs a device smoke test.
+- Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.3-alpha`, `versionCode 15` so it can upgrade earlier alpha installs.
+- The owner confirmed a generated test project's APK compiled, installed, and launched on-device. The session/command flow, provider fallback recovery, dependency synchronization, and updated AI review behavior still need smoke tests.
 - The Gradle regex fix and regression test are in commit `2cb10abf3567c65011d993dedb2932f3c983a42d`. GitHub Actions run [40777424598](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40777424598) passed on that exact SHA, including unit tests, debug APK assembly, artifact signature verification, checksum generation, and artifact upload. Use only an artifact matching the current validated source SHA.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
@@ -24,15 +24,16 @@
 ## Current consolidated implementation — PR #8
 
 - PR: [#8 Fix Project Factory generation and GitHub build synchronization](https://github.com/mauricio-gamedev/Project-ia/pull/8).
-- Source candidate: `0.8.1-alpha` / `versionCode 13`; application ID and stable signing configuration remain unchanged.
+- Source candidate: `0.8.3-alpha` / `versionCode 15`; application ID and stable signing configuration remain unchanged.
 - AI generation now retries malformed/incomplete JSON manifests once using the parser's rejection reason. It rejects missing/blank/duplicate/oversized file payloads.
 - Project preflight checks source delimiters, JSON/XML validity (rejecting DTD/entities), Android scaffold files, placeholder launchers, and Manifest-to-Activity consistency. It performs a bounded structural repair, preserves the previous draft, revalidates the candidate, and blocks cloud builds when unresolved structural issues remain.
 - GitHub UI synchronizes the stored OAuth session on resume, verifies the actual account through GitHub `/user`, keeps account-authentication state separate from repository selection/permissions, and clears rejected credentials without erasing saved repository selections.
 - Cloud build diagnostics capture the relevant Gradle job logs, retain final error lines, redact common credential-like values, and only send diagnostics to AI after explicit consent. A repair remains a proposal and must be built again before it counts as verified.
 - Consolidated chat updates include wider/readable assistant messages, message copy/selection, safe Markdown styling, persisted OLED Black, and cooldown invalidation when the primary model/endpoint/key changes.
-- Tests cover manifest parsing/retry, structural validation, Android launcher matching, diagnostic sanitization, code-review JSON extraction/retry, provider-failure non-retry, cooldown invalidation, and Markdown formatting.
+- Tests cover manifest parsing/retry, structural validation, Android launcher matching, common import/dependency synchronization, diagnostic sanitization, code-review JSON extraction/retry/path allowlisting, provider-failure classification, chat commands, cooldown invalidation, and Markdown formatting.
 - Owner device testing on 2026-10-28 first exposed `Syntax error in regexp pattern near index 21` during Android generation. The cause was unescaped literal closing braces in Gradle block regexes; those are escaped and the owner subsequently confirmed a generated test APK compiled, installed, and launched without that failure.
-- The same device session exposed `A resposta de revisão não contém JSON válido.` during AI code review. The candidate now retries only malformed/schema-invalid review responses once, accepts a balanced JSON object surrounded by Markdown/text, validates required report fields, and does not reissue provider/network failures. The code-review fix must be validated by CI on the exact latest head and then tested on-device.
+- The same device session exposed `A resposta de revisão não contém JSON válido.` during AI code review. The candidate retries malformed/schema-invalid review responses once, accepts balanced JSON surrounded by Markdown/text, validates required report fields, and does not reissue provider/network failures. It also rejects reports containing only paths outside the staged allowlist.
+- CI run [40789979968](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40789979968) failed on the previous source SHA `cd133b1e1c0225327534201aa5181ce301b8facd` because `@Composable` was accidentally attached to a top-level constant. That annotation placement was corrected in commit `6e17d95c509070fdced8c23a3f7095dffad7aa11`; the latest head must pass Actions before the next APK is used.
 - The latest known repository state includes active ruleset [protect main](https://github.com/mauricio-gamedev/Project-ia/rules/26013092). It has an `update` rule, no bypass actors, and `current_user_can_bypass = never`. The connected integration's merge attempt on the prior PR returned HTTP 405; auto-merge is disabled. Do not bypass/disable this rule without an authorized owner/admin action.
 
 ## Repository presentation already landed
@@ -75,9 +76,9 @@ Current live state (2026-10-28):
 
 ## Next-action queue
 
-1. Verify the new Android CI run for the code-review fix on the latest PR #8 head SHA; inspect tests/build/artifact verification on that exact commit.
-2. Download the APK artifact matching that validated SHA and verify its signing mode/checksum. The candidate is versionCode 14 so it can upgrade the previous candidate when signed with the same stable key.
-3. Install the current candidate on-device and retry **Analisar código com IA**. Confirm a malformed first response recovers when the model complies with the second prompt, and that unrecoverable output produces a clear error. Continue testing GitHub session sync, private build repository validation, remote APK build, and consent-gated AI-assisted build-log repair.
+1. Verify Android CI on the latest PR #8 head SHA after the annotation fix; inspect unit tests, app compilation, artifact verification, checksum, and upload on that exact commit.
+2. Download only the artifact matching that validated SHA and verify signing mode/checksum. The candidate is versionCode 15 so it can upgrade earlier candidates when signed with the same stable key.
+3. On-device, test `/new`, `/clear`, `/delete`, conversation switching, manual jump-to-latest, AI code review, changing models then returning to chat, and a project using Navigation/Lifecycle dependencies. Then smoke-test private build repository validation and remote APK delivery.
 4. If PR #8 is green but cannot merge, keep it open and report the active `protect main` update rule/disabled auto-merge blocker; an authorized owner/admin must adjust it.
 5. Repository description/topics remain unconfigured because no authorized metadata-write path was exposed. Do not work around that with unrelated code.
 6. For future work, start from fresh `main`, inspect source/tests, implement, validate on the exact SHA, review, open PR, and update this checkpoint.
