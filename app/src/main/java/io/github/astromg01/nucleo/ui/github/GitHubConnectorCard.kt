@@ -53,6 +53,8 @@ fun GitHubConnectorCard(container: AppContainer) {
     val session = remember(context) { GitHubOAuthSession(context, container.secretStore, connector) }
     var clientId by remember { mutableStateOf(preferences.clientId()) }
     var connected by remember { mutableStateOf(session.hasStoredAccessToken()) }
+    var sessionVerified by remember { mutableStateOf(false) }
+    var accountLogin by remember { mutableStateOf<String?>(null) }
     var repositories by remember { mutableStateOf<List<GitHubRepository>>(emptyList()) }
     var selected by remember { mutableStateOf(preferences.selectedRepository()) }
     var selectedBuild by remember { mutableStateOf(preferences.selectedBuildRepository()) }
@@ -66,11 +68,16 @@ fun GitHubConnectorCard(container: AppContainer) {
 
     suspend fun refresh() {
         val token = session.validAccessToken()
-            ?: throw java.io.IOException("Conecte sua conta GitHub para carregar os repositórios.")
+            ?: throw java.io.IOException("Nenhuma sessão OAuth GitHub válida foi encontrada. Conecte a conta para carregar os repositórios.")
+        // Verify the account itself before interpreting a failed repository listing as disconnection.
+        val login = connector.authenticatedUserLogin(token)
+        accountLogin = login
+        sessionVerified = true
+        connected = true
         repositories = connector.listRepositories(token)
         selected = preferences.selectedRepository()
         selectedBuild = preferences.selectedBuildRepository()
-        status = "Conexão GitHub pronta · ${repositories.size} repositórios carregados."
+        status = "Conta GitHub @${login} validada · ${repositories.size} repositórios carregados."
     }
 
     suspend fun waitForDeviceAuthorization(authorization: GitHubDeviceAuthorization) {
@@ -79,7 +86,6 @@ fun GitHubConnectorCard(container: AppContainer) {
             scope.launch { status = update }
         }
         session.save(tokens)
-        connected = true
         refresh()
         deviceAuthorization = null
     }
@@ -144,21 +150,35 @@ fun GitHubConnectorCard(container: AppContainer) {
 
     LaunchedEffect(resumeTick) {
         if (session.hasStoredAccessToken()) {
-            connected = true
-            if (!busy && repositories.isEmpty()) {
+            if (!busy) {
                 busy = true
+                sessionVerified = false
                 try {
                     refresh()
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    status = error.message ?: "Conexão detectada, mas não foi possível carregar os repositórios."
+                    if (isGitHubSessionRejected(error)) {
+                        connected = false
+                        sessionVerified = false
+                        accountLogin = null
+                        repositories = emptyList()
+                        status = error.message ?: "O GitHub recusou a sessão salva. Reconecte a conta."
+                    } else {
+                        connected = session.hasStoredAccessToken()
+                        sessionVerified = false
+                        accountLogin = null
+                        status = "A credencial está salva, mas não consegui validar/listar os repositórios agora: " +
+                            (error.message ?: "falha temporária. Tente atualizar novamente.")
+                    }
                 } finally {
                     busy = false
                 }
             }
         } else if (deviceAuthorization == null) {
             connected = false
+            sessionVerified = false
+            accountLogin = null
             repositories = emptyList()
         }
     }
@@ -231,7 +251,15 @@ fun GitHubConnectorCard(container: AppContainer) {
                     }
                 }
             } else {
-                Text("Conta GitHub conectada", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Medium)
+                Text(
+                    when {
+                        sessionVerified && !accountLogin.isNullOrBlank() -> "Conta GitHub validada como @${accountLogin}."
+                        connected -> "Credencial salva neste dispositivo; a sessão ainda não foi validada."
+                        else -> "Conta GitHub não conectada."
+                    },
+                    color = if (sessionVerified) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
                 Text("Repositório de contexto do chat", style = MaterialTheme.typography.labelLarge)
                 OutlinedButton(onClick = { contextMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(selected?.fullName ?: "Escolher repositório para o chat", maxLines = 1)
@@ -285,19 +313,39 @@ fun GitHubConnectorCard(container: AppContainer) {
                     if (!session.hasStoredAccessToken()) connected = false else {
                         busy = true
                         scope.launch {
-                            try { refresh() } catch (cancelled: CancellationException) {
+                            try {
+                                sessionVerified = false
+                                refresh()
+                            } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
-                                status = error.message ?: "Não foi possível atualizar a lista."
-                            } finally { busy = false }
+                                if (isGitHubSessionRejected(error)) {
+                                    connected = false
+                                    sessionVerified = false
+                                    accountLogin = null
+                                    repositories = emptyList()
+                                    status = error.message ?: "O GitHub recusou a sessão salva. Reconecte a conta."
+                                } else {
+                                    connected = session.hasStoredAccessToken()
+                                    sessionVerified = false
+                                    accountLogin = null
+                                    status = "A credencial está salva, mas não consegui validar/listar os repositórios: " +
+                                        (error.message ?: "falha temporária. Tente novamente.")
+                                }
+                            } finally {
+                                busy = false
+                            }
                         }
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar lista de repositórios") }
                 TextButton(enabled = !busy, onClick = {
                     session.disconnect()
                     connected = false
+                    sessionVerified = false
+                    accountLogin = null
                     deviceAuthorization = null
                     selected = null
+                    selectedBuild = null
                     repositories = emptyList()
                     status = "Token removido deste dispositivo. Para revogar a autorização, acesse GitHub → Settings → Applications."
                 }) { Text("Desconectar neste dispositivo") }
@@ -314,4 +362,14 @@ fun GitHubConnectorCard(container: AppContainer) {
             )
         }
     }
+}
+
+
+private fun isGitHubSessionRejected(error: Throwable): Boolean {
+    if (error is GitHubConnector.GitHubConnectorException && error.statusCode == 401) return true
+    val message = error.message.orEmpty()
+    return message.contains("expirou", ignoreCase = true) ||
+        message.contains("revogada", ignoreCase = true) ||
+        message.contains("bad_refresh_token", ignoreCase = true) ||
+        message.contains("HTTP 401", ignoreCase = true)
 }
