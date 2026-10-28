@@ -32,6 +32,27 @@ class GitHubAndroidBuildAdapterTest {
         verifyPublishedApkChecksum(expectedChecksum = digest.uppercase(), actualChecksum = digest)
     }
 
+    @Test
+    fun explainsProtectedBranchFailuresSeparatelyFromAuthenticationFailures() {
+        val protected = classifyGitHubBuildFailure(403, "Repository rule violations found")
+        val unauthorized = classifyGitHubBuildFailure(401, "Bad credentials")
+
+        assertTrue(protected.contains("regra de proteção"))
+        assertTrue(protected.contains("não vai contornar"))
+        assertTrue(unauthorized.contains("sessão OAuth"))
+        assertTrue(unauthorized.contains("expirado"))
+    }
+
+    @Test
+    fun explainsPermissionAndPrivateRepositoryFailuresActionably() {
+        val permissions = classifyGitHubBuildFailure(403, "Resource not accessible by integration")
+        val inaccessible = classifyGitHubBuildFailure(404, "Not Found")
+
+        assertTrue(permissions.contains("repo/workflow"))
+        assertTrue(inaccessible.contains("repositório privado"))
+        assertTrue(inaccessible.contains("acesso"))
+    }
+
     private fun expectIOException(expectedMessage: String, action: () -> Unit) {
         try {
             action()
