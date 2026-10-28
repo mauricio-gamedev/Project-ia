@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,9 +30,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import io.github.astromg01.nucleo.AppContainer
-import io.github.astromg01.nucleo.domain.github.GITHUB_OAUTH_TOKEN_ID
 import io.github.astromg01.nucleo.domain.github.GitHubConnector
 import io.github.astromg01.nucleo.domain.github.GitHubConnectorPreferences
 import io.github.astromg01.nucleo.domain.github.GitHubDeviceAuthorization
@@ -43,20 +46,23 @@ import kotlinx.coroutines.launch
 @Composable
 fun GitHubConnectorCard(container: AppContainer) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val preferences = remember(context) { GitHubConnectorPreferences(context) }
     val connector = remember { GitHubConnector() }
     val session = remember(context) { GitHubOAuthSession(context, container.secretStore, connector) }
     var clientId by remember { mutableStateOf(preferences.clientId()) }
-    var connected by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
+    var connected by remember { mutableStateOf(session.hasStoredAccessToken()) }
     var repositories by remember { mutableStateOf<List<GitHubRepository>>(emptyList()) }
     var selected by remember { mutableStateOf(preferences.selectedRepository()) }
     var selectedBuild by remember { mutableStateOf(preferences.selectedBuildRepository()) }
     var contextMenuOpen by remember { mutableStateOf(false) }
     var buildMenuOpen by remember { mutableStateOf(false) }
-    var deviceAuthorization by remember { mutableStateOf<GitHubDeviceAuthorization?>(null) }
+    var deviceAuthorization by remember { mutableStateOf(session.pendingAuthorization()) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
+    var resumeTick by remember { mutableStateOf(0) }
+    var pollRetry by remember { mutableStateOf(0) }
 
     suspend fun refresh() {
         val token = session.validAccessToken()
@@ -67,15 +73,73 @@ fun GitHubConnectorCard(container: AppContainer) {
         status = "Conexão GitHub pronta · ${repositories.size} repositórios carregados."
     }
 
-    LaunchedEffect(connected) {
-        if (connected) {
-            val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID)
-            if (!token.isNullOrBlank()) {
-                try { refresh() } catch (error: Exception) {
-                    if (error !is CancellationException) status = error.message ?: "Não foi possível atualizar repositórios."
+    suspend fun waitForDeviceAuthorization(authorization: GitHubDeviceAuthorization) {
+        val id = preferences.clientId().ifBlank { clientId }
+        val tokens = connector.awaitAccessToken(id, authorization) { update ->
+            scope.launch { status = update }
+        }
+        session.save(tokens)
+        connected = true
+        deviceAuthorization = null
+        refresh()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumeTick += 1
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Kept independent from ON_RESUME so returning from the browser does not cancel polling.
+    // A recreated process loads the encrypted device code and resumes this same flow.
+    LaunchedEffect(deviceAuthorization?.deviceCode, pollRetry) {
+        val authorization = deviceAuthorization ?: return@LaunchedEffect
+        if (session.hasStoredAccessToken()) {
+            connected = true
+            session.clearPendingAuthorization()
+            deviceAuthorization = null
+            return@LaunchedEffect
+        }
+        busy = true
+        status = "Aguardando a autorização do GitHub. Pode voltar para esta tela; a verificação continuará."
+        try {
+            waitForDeviceAuthorization(authorization)
+            status = "GitHub conectado · ${repositories.size} repositórios carregados."
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            status = error.message ?: "Não foi possível concluir a autorização do GitHub."
+            val lower = status.lowercase()
+            if (lower.contains("expirou") || lower.contains("recusada") || lower.contains("recusou")) {
+                session.clearPendingAuthorization()
+                deviceAuthorization = null
+            }
+        } finally {
+            busy = false
+        }
+    }
+
+    LaunchedEffect(resumeTick) {
+        if (session.hasStoredAccessToken()) {
+            connected = true
+            if (!busy && repositories.isEmpty()) {
+                busy = true
+                try {
+                    refresh()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status = error.message ?: "Conexão detectada, mas não foi possível carregar os repositórios."
+                } finally {
+                    busy = false
                 }
             }
-        } else repositories = emptyList()
+        } else if (deviceAuthorization == null) {
+            connected = false
+            repositories = emptyList()
+        }
     }
 
     Card(Modifier.fillMaxWidth()) {
@@ -104,7 +168,7 @@ fun GitHubConnectorCard(container: AppContainer) {
                         }, modifier = Modifier.weight(1f),
                     ) { Text("Configurar OAuth") }
                     Button(
-                        enabled = !busy && clientId.isNotBlank(),
+                        enabled = !busy && deviceAuthorization == null && clientId.isNotBlank(),
                         onClick = {
                             if (busy) return@Button
                             preferences.saveClientId(clientId)
@@ -113,14 +177,10 @@ fun GitHubConnectorCard(container: AppContainer) {
                             scope.launch {
                                 try {
                                     val auth = connector.requestDeviceAuthorization(clientId)
+                                    session.savePendingAuthorization(auth)
                                     deviceAuthorization = auth
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(auth.verificationUri))) }
-                                    status = "Digite o código no GitHub; o app vai detectar a autorização automaticamente."
-                                    val tokens = connector.awaitAccessToken(clientId, auth) { update -> scope.launch { status = update } }
-                                    session.save(tokens)
-                                    connected = true
-                                    deviceAuthorization = null
-                                    refresh()
+                                    status = "Digite o código no GitHub. A verificação ficará salva se o Android pausar ou recriar o app."
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (error: Exception) {
@@ -141,6 +201,9 @@ fun GitHubConnectorCard(container: AppContainer) {
                                 clipboard.setPrimaryClip(ClipData.newPlainText("Código GitHub", auth.userCode))
                                 status = "Código copiado."
                             }) { Text("Copiar código") }
+                            TextButton(enabled = !busy, onClick = { pollRetry += 1 }) {
+                                Text("Retomar verificação")
+                            }
                         }
                     }
                 }
@@ -196,8 +259,7 @@ fun GitHubConnectorCard(container: AppContainer) {
                     )
                 }
                 OutlinedButton(enabled = !busy, onClick = {
-                    val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID)
-                    if (token.isNullOrBlank()) connected = false else {
+                    if (!session.hasStoredAccessToken()) connected = false else {
                         busy = true
                         scope.launch {
                             try { refresh() } catch (cancelled: CancellationException) {
@@ -211,6 +273,7 @@ fun GitHubConnectorCard(container: AppContainer) {
                 TextButton(enabled = !busy, onClick = {
                     session.disconnect()
                     connected = false
+                    deviceAuthorization = null
                     selected = null
                     repositories = emptyList()
                     status = "Token removido deste dispositivo. Para revogar a autorização, acesse GitHub → Settings → Applications."
