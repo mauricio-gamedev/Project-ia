@@ -646,29 +646,35 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        if (githubBuildTokenAvailable) "Conta GitHub autorizada neste dispositivo."
-                        else "Conecte sua conta GitHub em Configurações antes de compilar.",
+                        when {
+                            githubSessionVerified && !githubAccountLogin.isNullOrBlank() -> "Sessão GitHub verificada como @${githubAccountLogin}."
+                            githubBuildTokenAvailable -> "Credencial encontrada; a sessão ainda precisa ser verificada."
+                            else -> "Sessão GitHub não verificada. Abra as Configurações para conectar ou reconectar."
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (githubSessionVerified) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedButton(onClick = onOpenGitHubSettings, enabled = !buildingApk && !verifyingBuildTarget, modifier = Modifier.fillMaxWidth()) {
                         Text("Conectar GitHub / escolher repositório de build")
                     }
                     OutlinedButton(
                         onClick = {
-                            selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
-                            githubBuildTokenAvailable = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
-                            buildStatus = if (selectedBuildRepository == null) {
-                                "Nenhum repositório de build selecionado no Conector GitHub."
-                            } else if (!githubBuildTokenAvailable) {
-                                "Conecte sua conta GitHub antes de verificar o repositório."
-                            } else {
-                                "Seleção atualizada. O repositório será validado antes do build."
+                            if (!syncingGitHubSession) {
+                                syncingGitHubSession = true
+                                scope.launch {
+                                    try {
+                                        syncGitHubIntegration(showStatus = true)
+                                    } finally {
+                                        syncingGitHubSession = false
+                                    }
+                                }
                             }
                         },
-                        enabled = !buildingApk && !verifyingBuildTarget,
+                        enabled = !buildingApk && !verifyingBuildTarget && !syncingGitHubSession,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Atualizar repositório de build selecionado") }
+                    ) {
+                        Text(if (syncingGitHubSession) "Sincronizando GitHub…" else "Sincronizar sessão e repositório")
+                    }
                     Button(
                         onClick = {
                             val repository = githubConnectorPreferences.selectedBuildRepository()
@@ -728,6 +734,29 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (projectReadinessIssues.isNotEmpty()) {
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    "Pré-validação bloqueou a compilação",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                projectReadinessIssues.take(8).forEach { issue ->
+                                    Text("• $issue", style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (projectReadinessIssues.size > 8) {
+                                    Text("Mais ${projectReadinessIssues.size - 8} problema(s) detectado(s).", style = MaterialTheme.typography.labelSmall)
+                                }
+                                Text(
+                                    "Use Revisar código e depois Propor correções. A compilação só será liberada quando a estrutura passar na pré-validação.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                     if (staged.profile == ProjectProfile.ANDROID_APP) {
                         HorizontalDivider()
                         Text("Gerar APK instalável", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -786,11 +815,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     }
                                 }
                             },
-                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating,
+                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating &&
+                                projectReadinessIssues.isEmpty(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (buildingApk) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                            else Text("Compilar APK na nuvem")
+                            else Text(if (projectReadinessIssues.isEmpty()) "Compilar APK na nuvem" else "Corrija os arquivos antes de compilar")
                         }
                         if (buildingApk) {
                             androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
