@@ -123,6 +123,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var currentDraft by remember { mutableStateOf<ProjectDraft?>(null) }
     var generationValidationIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var verifyingBuildTarget by remember { mutableStateOf(false) }
     var buildingApk by remember { mutableStateOf(false) }
@@ -145,6 +146,8 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var reviewSnapshot by remember { mutableStateOf<ProjectSourceSnapshot?>(null) }
     var reviewReport by remember { mutableStateOf<ProjectCodeReviewReport?>(null) }
     var repairCandidate by remember { mutableStateOf<StagedProject?>(null) }
+    var repairCandidateDraft by remember { mutableStateOf<ProjectDraft?>(null) }
+    var repairCandidateValidationIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
 
@@ -215,6 +218,8 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     fun clearReviewState() {
         val candidate = repairCandidate
         repairCandidate = null
+        repairCandidateDraft = null
+        repairCandidateValidationIssues = emptyList()
         reviewSnapshot = null
         reviewReport = null
         repairSummary = ""
@@ -237,6 +242,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     fun discardCurrentDraft(showStatus: Boolean = false) {
         val previous = stagedProject ?: return
         stagedProject = null
+        currentDraft = null
         generationValidationIssues = emptyList()
         visibleFileLimit = MAX_VISIBLE_FILES
         previewFile = null
@@ -511,6 +517,9 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 } else if (!generating && !exporting && !buildingApk && !verifyingBuildTarget) {
                     clearReviewState()
                     discardCurrentDraft()
+                    currentDraft = null
+                    repairCandidateDraft = null
+                    repairCandidateValidationIssues = emptyList()
                     generationValidationIssues = emptyList()
                     builtApk?.file?.delete()
                     builtApk = null
@@ -608,6 +617,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 factory.stage(finalDraft, stagingRoot)
                             }
                             generationValidationIssues = finalIssues
+                            currentDraft = finalDraft
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
                             builtApk?.file?.delete()
