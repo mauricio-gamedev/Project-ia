@@ -485,7 +485,7 @@ object AndroidProjectScaffold {
 
     private fun escapeXml(value: String): String = value
         .replace("&", "&amp;")
-        .replace('"', "&quot;")
+        .replace("\\"", "&quot;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
 }
