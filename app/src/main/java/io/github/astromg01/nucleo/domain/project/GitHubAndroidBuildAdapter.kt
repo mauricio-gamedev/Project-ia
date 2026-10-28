@@ -63,21 +63,21 @@ class AndroidBuildFailureException(
 
 internal fun sanitizeBuildDiagnostics(raw: String): String {
     var safe = raw
-        .replace(Regex("(?i)(authorization\\\\s*[:=]\\\\s*bearer\\\\s+)[^\\\\s]+")) {
+        .replace(Regex("(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s]+")) {
             it.groupValues[1] + "[REDACTED]"
         }
-        .replace(Regex("\\\\bgh[pousr]_[A-Za-z0-9_]{20,}\\\\b"), "[REDACTED]")
-        .replace(Regex("\\\\bsk-[A-Za-z0-9_-]{15,}\\\\b"), "[REDACTED]")
-        .replace(Regex("(?i)((?:api[_-]?key|access[_-]?token|password|secret)\\\\s*[=:]\\\\s*)[^\\\\s,;]+")) {
+        .replace(Regex("\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b"), "[REDACTED]")
+        .replace(Regex("\\bsk-[A-Za-z0-9_-]{15,}\\b"), "[REDACTED]")
+        .replace(Regex("(?i)((?:api[_-]?key|access[_-]?token|password|secret)\\s*[=:]\\s*)[^\\s,;]+")) {
             it.groupValues[1] + "[REDACTED]"
         }
     val important = Regex(
-        "(?i)(^\\\\s*e: |\\\\berror:|unresolved reference|cannot find symbol|compilation failed|failed with an exception|what went wrong|execution failed|could not resolve|could not find|manifest merger failed|duplicate class|type mismatch|expecting [a-z]+|not enough information to infer|is not abstract and does not implement|resource linking failed|aapt:|\\\\.kt:[0-9]+:[0-9]+|\\\\.java:[0-9]+:[0-9]+)"
+        "(?i)(^\\s*e: |\\berror:|unresolved reference|cannot find symbol|compilation failed|failed with an exception|what went wrong|execution failed|could not resolve|could not find|manifest merger failed|duplicate class|type mismatch|expecting [a-z]+|not enough information to infer|is not abstract and does not implement|resource linking failed|aapt:|\\.kt:[0-9]+:[0-9]+|\\.java:[0-9]+:[0-9]+)"
     )
     val lines = safe.lineSequence().toList()
     var selected = lines.filter { important.containsMatchIn(it) }
     if (selected.isEmpty()) selected = lines.takeLast(40)
-    safe = selected.takeLast(MAX_DIAGNOSTIC_LINES).joinToString("\\\\n")
+    safe = selected.takeLast(MAX_DIAGNOSTIC_LINES).joinToString("\\n")
     return safe.take(MAX_DIAGNOSTIC_CHARS)
 }
 
