@@ -111,7 +111,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
     val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
     var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedBuildRepository()) }
-    var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
+    var githubBuildTokenAvailable by remember { mutableStateOf(!container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()) }
     var githubAccountLogin by remember { mutableStateOf<String?>(null) }
     var githubSyncTick by remember { mutableStateOf(0) }
     var syncingGitHub by remember { mutableStateOf(false) }
@@ -162,15 +162,14 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(githubSyncTick, selectedBuildRepository?.fullName) {
+    LaunchedEffect(githubSyncTick) {
         val storedToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
         githubBuildTokenAvailable = storedToken
         selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
         if (!storedToken) {
             githubAccountLogin = null
-            if (buildStatus.isBlank() || buildStatus.startsWith("Sessão GitHub")) {
-                buildStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
-            }
+            githubAccountLogin = null
+            buildStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
             return@LaunchedEffect
         }
 
@@ -524,6 +523,9 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     repairCandidateDraft = null
                     repairCandidateValidationIssues = emptyList()
                     generationValidationIssues = emptyList()
+                    buildFailureDiagnostics = ""
+                    buildFailureRunUrl = ""
+                    buildStatus = ""
                     builtApk?.file?.delete()
                     builtApk = null
                     buildConsent = false
@@ -763,7 +765,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     Button(
                         onClick = {
                             val repository = githubConnectorPreferences.selectedBuildRepository()
-                            val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                            val hasStoredToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                             if (repository == null) {
                                 buildStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
                             } else if (!hasStoredToken) {
@@ -837,7 +839,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         }
                         Button(
                             onClick = {
-                                val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                                val hasStoredToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                                 val repository = githubConnectorPreferences.selectedBuildRepository()
                                 when {
                                     !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
@@ -1225,7 +1227,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = reviewConsent, onCheckedChange = { reviewConsent = it })
                         Text(
-                            "Autorizo enviar o conteúdo dos arquivos do rascunho ao provedor remoto para análise e sugestões de correção.",
+                            "Autorizo enviar o conteúdo dos arquivos do rascunho e, se eu pedir correção de build, os diagnósticos sanitizados do Gradle ao provedor remoto.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
