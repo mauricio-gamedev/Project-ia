@@ -156,7 +156,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
 
     val projectInteractionLocked = generating || exporting || buildingApk || verifyingBuildTarget ||
-        reviewingCode || proposingRepair || repairingBuild
+        reviewingCode || proposingRepair || repairingBuild || syncingGitHub
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -701,7 +701,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 error is java.net.SocketTimeoutException ||
                                 (error is java.io.IOException && error.message?.contains("timeout", ignoreCase = true) == true)
                             ) {
-                                "O modelo demorou demais para responder. Aumentei o limite de espera para 210 segundos; tenta novamente ou seleciona outro modelo gratuito no OpenRouter."
+                                "O provedor demorou demais para responder e a solicitação foi interrompida. Tente novamente ou selecione outro modelo; isso não significa que sua conta GitHub foi desconectada."
                             } else {
                                 error.message ?: "Não foi possível gerar o projeto."
                             }
@@ -712,7 +712,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     }
                 }
             },
-            enabled = !generating && !exporting,
+            enabled = !projectInteractionLocked,
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (generating) {
@@ -1531,7 +1531,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                             }
                                         }
                                     },
-                                    enabled = !proposingRepair && !reviewingCode && !exporting,
+                                    enabled = !projectInteractionLocked && repairCandidateDraft != null,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text("Aplicar rascunho corrigido") }
                                 TextButton(
