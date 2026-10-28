@@ -33,7 +33,7 @@ class ProjectManifestGenerationServiceTest {
                     "test-model",
                 )
             } else {
-                assertTrue(request.messages.last().content.contains("vazia"))
+                assertTrue(request.messages.last().content.contains("vazio"))
                 AiResponse(
                     manifest(path = "src/main.kt", source = "fun main() {}"),
                     "TestProvider",
