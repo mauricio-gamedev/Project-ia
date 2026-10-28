@@ -1,88 +1,84 @@
-# NúcleoLang — especificação inicial 0.2 (alfa)
+# NúcleoLang — Initial Language Specification 0.2 (Alpha)
 
-NúcleoLang é uma linguagem autoral em desenvolvimento para scripts determinísticos e automações que possam integrar o Núcleo AI. O nome é um codinome de trabalho; marca e colisões de nome ainda precisam ser verificadas.
+NúcleoLang is an original language under development for deterministic scripts and potential integration with Núcleo AI. The name is a working title; trademark availability and possible naming conflicts have not been evaluated.
 
-## Direção do produto
+## Product direction
 
-NúcleoLang é uma linguagem geral e extensível em evolução, não uma lista fechada de tipos de software que ela pode produzir. O core define semântica e execução; bibliotecas, capacidades do host e futuros backends adicionam integração com novos ambientes. O fato de a IA sugerir código ou ferramentas não concede permissões por si só: todas as capacidades externas precisam ser registradas pelo aplicativo hospedeiro.
+NúcleoLang is intended to be general and extensible rather than limited to a fixed list of project types. The core defines language semantics and execution; libraries, host capabilities, and future backends may connect it to additional environments. AI-generated code or suggestions do not grant permissions: external capabilities must be registered by the host application.
 
-O objetivo de longo prazo inclui aplicações, jogos, ferramentas, serviços e múltiplos destinos de compilação. Esses são objetivos de compatibilidade, não recursos já disponíveis na versão alfa. A inteligência do modelo é uma camada opcional; a semântica básica da linguagem deve permanecer determinística.
+Long-term goals include apps, games, utilities, services, and multiple compilation targets. These are compatibility goals, not features already available in the alpha. Model intelligence is an optional layer; language semantics should remain deterministic.
 
-## Princípios da versão 0.2
+## Version 0.2 principles
 
-- Implementação independente em Kotlin, sem copiar parser, AST ou runtime dos arquivos de referência.
-- Interpretador determinístico, sem `eval`, reflexão, carregamento dinâmico de classes, shell, rede ou acesso direto a arquivos.
-- Efeitos colaterais e integrações externas somente por funções nativas explicitamente registradas pelo aplicativo hospedeiro. O core fornece `print`, `len`, `push`, `pop` e `contains`; funções de host usam `NucleoHostFunction` e retornam apenas valores admitidos pela linguagem.
-- Coleções são valores do runtime, limitadas por configuração para proteger memória e estabilidade em dispositivos móveis.
-- Limites de tamanho da fonte, tokens, etapas de execução e profundidade de chamadas.
-- Erros úteis com linha e coluna quando a posição de origem está disponível.
+- Independent Kotlin implementation; no copying of parser, AST, or runtime source from reference projects.
+- Deterministic interpreter without eval, reflection, dynamic JVM class loading, shell, network, or direct filesystem access.
+- Side effects and external integration are available only through native functions explicitly registered by the host app. The core includes print, len, push, pop, and contains; host calls use NucleoHostFunction and return only supported language values.
+- Collections are runtime values with configurable limits intended to protect mobile memory and stability.
+- Limits apply to source size, token count, execution steps, and call depth.
+- Errors aim to include line/column information when a source location is available.
 
-## Sintaxe de exemplo
+## Example
 
-```nuc
-fun fibonacci(n) {
-    if (n <= 1) return n;
-    return fibonacci(n - 1) + fibonacci(n - 2);
-}
+    fun fibonacci(n) {
+        if (n <= 1) return n;
+        return fibonacci(n - 1) + fibonacci(n - 2);
+    }
 
-let total = fibonacci(8);
-if (total == 21) {
-    print("NúcleoLang funcionando");
-}
-```
+    let total = fibonacci(8);
+    if (total == 21) {
+        print("NucleoLang is running");
+    }
 
-## Gramática resumida
+## Simplified grammar
 
-```text
-program       -> declaration* EOF
- declaration   -> letDecl | funDecl | statement
-letDecl       -> "let" IDENTIFIER "=" expression ";"
-funDecl       -> "fun" IDENTIFIER "(" parameters? ")" block
-statement     -> "if" "(" expression ")" statement ("else" statement)?
-               | "while" "(" expression ")" statement
-               | "return" expression? ";"
-               | block
-               | expression ";"
-block         -> "{" declaration* "}"
-expression    -> assignment
-assignment    -> logicOr ("=" assignment)?
-logicOr       -> logicAnd ("||" logicAnd)*
-logicAnd      -> equality ("&&" equality)*
-equality     -> comparison (("==" | "!=") comparison)*
-comparison   -> term (("<" | "<=" | ">" | ">=") term)*
-term          -> factor (("+" | "-") factor)*
-factor        -> unary (("*" | "/" | "%") unary)*
-unary         -> ("!" | "-") unary | call
-call          -> primary (("(" arguments? ")") | ("[" expression "]"))*
-primary       -> NUMBER | STRING | true | false | null | IDENTIFIER | listLiteral | "(" expression ")"
-listLiteral   -> "[" (expression ("," expression)*)? "]"
-```
+    program       -> declaration* EOF
+    declaration   -> letDecl | funDecl | statement
+    letDecl       -> "let" IDENTIFIER "=" expression ";"
+    funDecl       -> "fun" IDENTIFIER "(" parameters? ")" block
+    statement     -> "if" "(" expression ")" statement ("else" statement)?
+                   | "while" "(" expression ")" statement
+                   | "return" expression? ";"
+                   | block
+                   | expression ";"
+    block         -> "{" declaration* "}"
+    expression    -> assignment
+    assignment    -> logicOr ("=" assignment)?
+    logicOr       -> logicAnd ("||" logicAnd)*
+    logicAnd      -> equality ("&&" equality)*
+    equality      -> comparison (("==" | "!=") comparison)*
+    comparison    -> term (("<" | "<=" | ">" | ">=") term)*
+    term          -> factor (("+" | "-") factor)*
+    factor        -> unary (("*" | "/" | "%") unary)*
+    unary         -> ("!" | "-") unary | call
+    call          -> primary (("(" arguments? ")") | ("[" expression "]"))*
+    primary       -> NUMBER | STRING | true | false | null | IDENTIFIER | listLiteral | "(" expression ")"
+    listLiteral   -> "[" (expression ("," expression)*)? "]"
 
-## Regras semânticas
+## Runtime semantics
 
-- Tipos primitivos: número (`Double`), texto, booleano e `null`.
-- Condições de `if`/`while` e operandos de `&&`, `||` e `!` exigem booleanos; não há coerção implícita.
-- `+` aceita dois números ou dois textos. Outros operadores aritméticos exigem números.
-- Variáveis usam escopo léxico. Uma declaração duplicada no mesmo escopo gera erro.
-- Listas mutáveis: literais `[1, 2]`, acesso `values[0]`, atribuição `values[0] = 9`, listas aninhadas e indexação encadeada. Índices precisam ser inteiros não negativos dentro dos limites.
-- Biblioteca inicial de coleções: `len(textoOuLista)`, `push(lista, valor)`, `pop(lista)` e `contains(listaOuTexto, valor)`. `push` retorna o novo tamanho; `pop` remove e retorna o último item.
-- Funções são valores chamáveis com parâmetros posicionais e suportam recursão com limite de profundidade.
-- Funções hospedeiras são registradas pela aplicação e não podem substituir nomes embutidos. O runtime recusa retorno de objetos JVM arbitrários.
-- `return` só é válido dentro de uma função. Funções sem retorno explícito retornam `null`.
-- `&&` e `||` usam curto-circuito.
-- A execução tem orçamento de etapas por programa. O padrão atual é 100.000 passos; máximo configurável de 1.000.000. Profundidade padrão e máxima de chamadas: 64.
-- Limites atuais: fonte até 256.000 caracteres, até 50.000 tokens, aninhamento sintático até 128 níveis, 32 parâmetros/argumentos e até 10.000 elementos por lista por padrão (configurável até um teto de segurança de 100.000). Execução e recursão também têm orçamentos configuráveis dentro dos tetos do runtime.
+- Primitive values: number (Double), text, boolean, and null.
+- Conditions in if/while and operands of &&, ||, and ! require booleans; no implicit coercion is performed.
+- + accepts two numbers or two strings. Other arithmetic operators require numbers.
+- Variables use lexical scope. Duplicate declarations in the same scope are errors.
+- Mutable lists support literals such as [1, 2], access like values[0], assignment such as values[0] = 9, nested lists, and chained indexing. Indices must be non-negative integers within the valid range.
+- Initial collection functions: len(value), push(list, value), pop(list), and contains(collectionOrText, value). push returns the new length; pop removes and returns the last list item.
+- Functions are callable values with positional parameters. Recursion is supported within a bounded call depth.
+- Host functions are registered by the app and cannot override built-in names. Arbitrary JVM objects are rejected as runtime values.
+- return is valid only within a function. A function without explicit return produces null.
+- && and || short-circuit.
+- Execution is bounded by a step budget. The current default is 100,000 steps; the configurable maximum is 1,000,000. Default and maximum call depth are 64.
+- Current safety limits include source length up to 256,000 characters, up to 50,000 tokens, syntactic nesting to 128 levels, up to 32 parameters/arguments, and up to 10,000 list items by default (configurable up to a 100,000 hard ceiling).
 
-## Limitações conhecidas
+## Known limitations
 
-A versão 0.2 alfa já inclui listas, mas ainda não inclui mapas/dicionários, classes/interfaces, importação de módulos, tipos estáticos, async/await, compilador/bytecode, depurador, formatador ou integração direta com ferramentas de engenharia e modelos de IA. As funções de host são código Kotlin confiável fornecido pelo app; a linguagem não carrega plugins arbitrários do usuário. Antes de executar programas não confiáveis em produção, precisamos adicionar cancelamento cooperativo na UI, isolamento/limites de recursos por tarefa e testes de segurança adicionais.
+Version 0.2 alpha has list collections but does not yet include maps/dictionaries, classes/interfaces, module imports, static typing, async/await, bytecode compilation, a debugger, formatter, or direct integration with engineering tools and AI models. Host functions are trusted Kotlin code supplied by the app; the language does not load arbitrary user plugins. Before running untrusted programs in production, the project needs cooperative UI cancellation, stronger per-task resource isolation, and additional security tests.
 
 ## Roadmap
 
-1. Sistema de regressão contínua para lexer/parser/runtime e especificação normativa.
-2. Mapas/dicionários, tipos/estruturas e iteração ergonômica.
-3. Pacotes e módulos importáveis com resolução reproduzível e metadados de licença.
-4. API de capacidades com permissões declaradas para arquivos, processos, rede e ferramentas de projeto.
-5. Cancelamento cooperativo, diagnósticos estruturados, depurador e formatador.
-6. Integração segura com agente de IA e Project Factory.
-7. Backends de compilação adicionáveis por destino; avaliar bytecode/WASM/nativo após estabilizar a semântica.
+1. Continuous regression suite for lexer/parser/runtime and a versioned normative spec.
+2. Maps/dictionaries, structures/types, and ergonomic iteration.
+3. Importable packages/modules with reproducible resolution and license metadata.
+4. Capability API with declared permissions for files, processes, network, and project tools.
+5. Cooperative cancellation, structured diagnostics, debugger, and formatter.
+6. Safe agent and Project Factory integration.
+7. Addable compilation backends per target; evaluate bytecode/WASM/native options after stabilizing semantics.
