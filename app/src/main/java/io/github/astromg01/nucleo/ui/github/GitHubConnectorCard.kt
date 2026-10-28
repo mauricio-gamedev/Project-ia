@@ -118,12 +118,25 @@ fun GitHubConnectorCard(container: AppContainer) {
         } catch (error: Exception) {
             val detail = error.message ?: "Não foi possível concluir a autorização do GitHub."
             val lower = detail.lowercase()
-            if (session.hasStoredAccessToken()) {
-                // The token was saved but fetching repositories failed; do not show the account as disconnected.
+            if (session.hasStoredAccessToken() && isGitHubSessionRejected(error)) {
+                session.clearRejectedCredentials()
+                connected = false
+                sessionVerified = false
+                accountLogin = null
+                repositories = emptyList()
+                session.clearPendingAuthorization()
+                deviceAuthorization = null
+                status = "O GitHub recusou uma credencial antiga salva. Ela foi removida sem apagar as seleções de repositório; agora podes autorizar a conta novamente."
+            } else if (session.hasStoredAccessToken()) {
+                // The token was saved and may still be valid; a network/listing error must not be mistaken for logout.
                 connected = true
                 session.clearPendingAuthorization()
                 deviceAuthorization = null
-                status = "GitHub conectado. Não consegui carregar os repositórios agora: $detail"
+                status = if (sessionVerified && accountLogin != null) {
+                    "Conta @$accountLogin validada, mas não consegui atualizar os repositórios agora: $detail"
+                } else {
+                    "A credencial foi salva, mas a sessão ainda não foi validada: $detail"
+                }
             } else if (lower.contains("expirou") || lower.contains("recusada") || lower.contains("recusou") ||
                 lower.contains("client id") || lower.contains("device flow")) {
                 status = detail
@@ -159,11 +172,12 @@ fun GitHubConnectorCard(container: AppContainer) {
                     throw cancelled
                 } catch (error: Exception) {
                     if (isGitHubSessionRejected(error)) {
+                        session.clearRejectedCredentials()
                         connected = false
                         sessionVerified = false
                         accountLogin = null
                         repositories = emptyList()
-                        status = error.message ?: "O GitHub recusou a sessão salva. Reconecte a conta."
+                        status = "O GitHub recusou a sessão salva. As credenciais inválidas foram removidas, mantendo as seleções de repositório. Reconecte a conta."
                     } else {
                         connected = session.hasStoredAccessToken()
                         sessionVerified = false
@@ -320,11 +334,12 @@ fun GitHubConnectorCard(container: AppContainer) {
                                 throw cancelled
                             } catch (error: Exception) {
                                 if (isGitHubSessionRejected(error)) {
+                                    session.clearRejectedCredentials()
                                     connected = false
                                     sessionVerified = false
                                     accountLogin = null
                                     repositories = emptyList()
-                                    status = error.message ?: "O GitHub recusou a sessão salva. Reconecte a conta."
+                                    status = "O GitHub recusou a sessão salva. As credenciais inválidas foram removidas, mantendo as seleções de repositório. Reconecte a conta."
                                 } else {
                                     connected = session.hasStoredAccessToken()
                                     sessionVerified = false
