@@ -54,6 +54,27 @@ class ProjectGenerationValidatorTest {
     }
 
     @Test
+    fun acceptsValidXmlWithoutRequiringUnsupportedXercesFlags() {
+        val issues = ProjectGenerationValidator.validate(
+            genericFile("layout.xml", """<root><item android:enabled="true" /></root>"""),
+        )
+
+        assertFalse(issues.any { it.contains("XML") && it.contains("malformado") })
+    }
+
+    @Test
+    fun rejectsDtdAndEntityDeclarationsInGeneratedXml() {
+        val issues = ProjectGenerationValidator.validate(
+            genericFile(
+                "layout.xml",
+                """<!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><root>&xxe;</root>""",
+            ),
+        )
+
+        assertTrue(issues.any { it.contains("XML") && it.contains("malformado") })
+    }
+
+    @Test
     fun detectsFallbackLauncherPlaceholder() {
         val draft = AndroidProjectScaffold.complete(
             ProjectDraft(
