@@ -144,7 +144,11 @@ class GitHubAndroidBuildAdapter(
             }
             val permissions = json.optJSONObject("permissions")
             if (permissions?.optBoolean("push", false) != true) {
-                throw IOException("O token não tem permissão de escrita nesse repositório. Use um token restrito ao repositório privado com Contents: Read and write.")
+                throw IOException(
+                    "A conta GitHub autorizada não tem permissão de escrita confirmada neste repositório. " +
+                        "Confirme que você pode enviar commits para ele, que o repositório é privado e que a autorização OAuth inclui repo e workflow. " +
+                        "Uma regra de proteção também pode bloquear a operação mesmo com a conta conectada.",
+                )
             }
             val defaultBranch = json.optString("default_branch", "").trim()
             if (defaultBranch.isBlank() || !isSafeBranch(defaultBranch)) {
@@ -647,7 +651,7 @@ class GitHubAndroidBuildAdapter(
         require(owner.matches(OWNER_PATTERN)) { "O proprietário do repositório GitHub não é válido." }
         require(repository.matches(REPOSITORY_PATTERN)) { "O nome do repositório GitHub não é válido." }
         require(token.isNotBlank() && token.length <= 512 && !token.any { it.isWhitespace() }) {
-            "Cole um token pessoal do GitHub válido. O token não é enviado ao modelo de IA."
+            "A sessão OAuth do GitHub está ausente ou inválida. Reconecte a conta em Configurações; não é necessário colar um token pessoal."
         }
     }
 
