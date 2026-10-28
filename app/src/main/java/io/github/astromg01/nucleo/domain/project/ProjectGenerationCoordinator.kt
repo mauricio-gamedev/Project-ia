@@ -47,6 +47,7 @@ class ProjectGenerationCoordinator {
                 val response = generateResponse(attemptRequest)
                 val draft = ProjectManifestParser.parse(response.text, name, description, profile)
                 val scaffold = AndroidProjectScaffold.complete(draft)
+                ProjectFactory().validate(scaffold.draft)
                 val issues = ProjectSourceIntegrityValidator.inspect(scaffold.draft).toMutableList()
                 if (profile == ProjectProfile.ANDROID_APP && scaffold.defaultLauncherAdded) {
                     issues += "A IA não forneceu uma Activity de entrada utilizável; foi necessário criar uma tela de contingência."
