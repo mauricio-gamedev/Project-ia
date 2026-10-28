@@ -469,6 +469,7 @@ private fun ChatScreen(
     val githubSession = remember(context) {
         io.github.astromg01.nucleo.domain.github.GitHubOAuthSession(context, container.secretStore, githubConnector)
     }
+    val chatMemoryManager = remember { io.github.astromg01.nucleo.core.ai.ChatMemoryManager() }
     var draft by remember { mutableStateOf("") }
     var creatorMode by remember { mutableStateOf(false) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
@@ -519,13 +520,15 @@ private fun ChatScreen(
         requestScope.launch {
             try {
                 container.database.chatMessageDao().insert(ChatMessageEntity(role = "user", content = text))
+                val explicitMemory = chatMemoryManager.createExplicitMemory(text)
+                if (explicitMemory != null) container.database.memoryDao().upsertChatMemory(explicitMemory)
+
                 val history = container.database.chatMessageDao().latestConversation("main", 24)
                     .asReversed()
                     .map { AiMessage(it.role, it.content) }
-                val memories = container.database.memoryDao().latest(6)
-                val memoryContext = memories.joinToString("\n\n") { memory ->
-                    "[${memory.kind}; ${memory.title}; projeto=${memory.projectId ?: "geral"}]\n${memory.content.take(1_200)}"
-                }.take(7_000)
+                val summary = container.database.memoryDao().chatSummary()
+                val memories = container.database.memoryDao().latestChatFacts(32)
+                val memoryContext = chatMemoryManager.buildPromptContext(text, summary, memories)
                 var repositoryContext = ""
                 if (includeRepository) {
                     val selected = githubPreferences.selectedRepository()
@@ -537,7 +540,9 @@ private fun ChatScreen(
                 val systemPrompt = buildString {
                     append(
                         "Você é o Núcleo AI, um assistente pessoal para engenharia e criação de conteúdo. " +
-                            "Responda em português brasileiro, seja preciso, diferencie fatos de suposições e nunca afirme ter executado ações que não executou. " +
+                            "Responda em português brasileiro com precisão, coerência e continuidade. Diferencie fatos, inferências e dúvidas; nunca afirme ter executado ações que não executou. " +
+                            "Leia as mensagens recentes em ordem cronológica. Se a última mensagem for uma continuação ou usar pronomes como isso/ele/aquilo, resolva o referente pelo contexto anterior em vez de iniciar um assunto novo. " +
+                            "Responda ao pedido mais recente sem ignorar decisões e restrições estabelecidas; se o contexto não bastar, faça uma pergunta curta em vez de inventar. " +
                             "O chat pode consultar o repositório GitHub selecionado somente quando o usuário ativar explicitamente o contexto do repositório; " +
                             "isso autoriza enviar ao provedor configurado os trechos de código anexados. O token GitHub nunca deve ser incluído na mensagem enviada ao modelo. " +
                             "O chat não grava nem altera arquivos no GitHub diretamente. A Project Factory pode gerar fontes e, com consentimento separado, compilar APKs Android pela nuvem. " +
@@ -568,6 +573,55 @@ private fun ChatScreen(
                     ChatMessageEntity(role = "assistant", content = response.text, provider = response.providerName),
                 )
                 if (creatorMode) latestGeneratedContent = response.text
+
+                // Update long-term memory asynchronously; a summary failure never invalidates the answer.
+                requestScope.launch {
+                    try {
+                        val previousSummary = container.database.memoryDao().chatSummary()
+                        val allTurns = container.database.chatMessageDao().latestConversation("main", 80)
+                            .asReversed()
+                            .dropLastWhile { it.role == "user" }
+                        if (chatMemoryManager.shouldSummarize(previousSummary, allTurns)) {
+                            val newTurns = if (previousSummary == null) allTurns
+                                else allTurns.filter { it.createdAt > previousSummary.updatedAt }
+                            val transcript = newTurns.takeLast(36)
+                            if (transcript.isNotEmpty()) {
+                                val summaryResponse = container.modelRouter.generate(
+                                    AiRequest(
+                                        messages = listOf(
+                                            AiMessage(
+                                                "system",
+                                                "Crie um resumo compacto, factual e útil para retomar esta conversa depois. Preserve objetivo ativo, decisões, restrições, preferências estáveis e perguntas abertas. Não invente fatos, não transforme hipóteses em certezas e não guarde senhas, tokens, chaves ou dados financeiros. Retorne somente o resumo em português, até 2500 caracteres.",
+                                            ),
+                                            AiMessage("user", chatMemoryManager.summaryInput(previousSummary, transcript)),
+                                        ),
+                                        temperature = 0.1,
+                                        maxOutputTokens = 700,
+                                    ),
+                                )
+                                val summaryText = summaryResponse.text.trim().take(3_200)
+                                if (summaryText.isNotBlank()) {
+                                    val timestamp = transcript.last().createdAt
+                                    container.database.memoryDao().upsertChatMemory(
+                                        MemoryEntity(
+                                            id = "chat-summary-main",
+                                            kind = "chat_summary",
+                                            title = "Resumo durável da conversa principal",
+                                            content = summaryText,
+                                            confidence = 0.85f,
+                                            createdAt = previousSummary?.createdAt ?: timestamp,
+                                            updatedAt = timestamp,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Summary is a best-effort background task.
+                    }
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
