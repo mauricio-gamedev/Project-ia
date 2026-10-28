@@ -123,7 +123,7 @@ The project is an actively evolving alpha. Current priorities are stronger lifec
 
 ## Copyright and license
 
-Copyright © 2026 mauricio-gamedev (@astromg01). All rights reserved.
+Copyright © 2026 mauricio-gamedev. All rights reserved.
 
 Núcleo AI is a proprietary, source-visible project. **No general license is granted to use, copy, modify, redistribute, sublicense, or create derivative works from original project materials without prior written permission from the copyright holder.** Public visibility on GitHub does not make this repository open source.
 
