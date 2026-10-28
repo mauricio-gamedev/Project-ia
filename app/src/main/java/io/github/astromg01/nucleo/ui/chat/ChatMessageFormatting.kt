@@ -21,7 +21,7 @@ internal fun formatChatMarkdown(markdown: String): AnnotatedString {
         var hasRenderedLine = false
 
         lines.forEach { rawLine ->
-            if (rawLine.trimStart().startsWith("\`\`\`")) {
+            if (rawLine.trimStart().startsWith("```")) {
                 inCodeBlock = !inCodeBlock
                 return@forEach
             }
@@ -75,7 +75,7 @@ private fun AnnotatedString.Builder.appendInlineMarkdown(text: String) {
             text.startsWith("__", index) -> "__"
             text[index] == '*' -> "*"
             text[index] == '_' -> "_"
-            text[index] == '\`' -> "\`"
+            text[index] == '`' -> "`"
             else -> null
         }
 
@@ -85,7 +85,7 @@ private fun AnnotatedString.Builder.appendInlineMarkdown(text: String) {
             when (token) {
                 "**", "__" -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(value) }
                 "*", "_" -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(value) }
-                "\`" -> withStyle(
+                "`" -> withStyle(
                     SpanStyle(
                         fontFamily = FontFamily.Monospace,
                         background = Color(0xFF202027),
