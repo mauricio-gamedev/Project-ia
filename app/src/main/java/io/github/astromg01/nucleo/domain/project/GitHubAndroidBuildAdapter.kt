@@ -26,6 +26,33 @@ import java.util.zip.ZipInputStream
 
 private val SHA256_DIGEST_PATTERN = Regex("[0-9a-fA-F]{64}")
 
+internal fun classifyGitHubBuildFailure(statusCode: Int, providerMessage: String = ""): String {
+    val detail = providerMessage.lowercase()
+    return when (statusCode) {
+        401 -> "O GitHub recusou a sessão OAuth (HTTP 401). Ela pode ter expirado ou sido revogada; valide a conta nas Configurações."
+        403 -> when {
+            detail.contains("protected") || detail.contains("rule violation") ||
+                detail.contains("cannot update this protected ref") ->
+                "A conta foi autenticada, mas uma regra de proteção da branch bloqueou a instalação ou atualização do workflow. Use um repositório privado de build dedicado ou configure uma instalação por PR; o Núcleo não vai contornar a proteção."
+            detail.contains("rate limit") || detail.contains("api rate limit") ->
+                "O GitHub limitou as requisições da API. Aguarde a cota reiniciar e tente novamente."
+            detail.contains("resource not accessible") || detail.contains("insufficient") ->
+                "A sessão existe, mas não tem permissão para este recurso. Confirme os escopos repo/workflow, o acesso de escrita ao repositório e se GitHub Actions está habilitado."
+            else ->
+                "O GitHub bloqueou a operação (HTTP 403). A conta pode estar conectada, mas falta permissão de escrita/workflow, a cota da API foi atingida ou Actions está desabilitado."
+        }
+        404 -> "O GitHub não encontrou o repositório, workflow ou recurso. Para um repositório privado, confirme owner/nome e se a conta autorizada realmente tem acesso."
+        409, 422 -> when {
+            detail.contains("protected") || detail.contains("rule violation") ->
+                "Uma regra de branch ou política do repositório bloqueou a alteração. O build precisa de um repositório/configuração que permita instalar o workflow de forma autorizada."
+            else -> "O GitHub recusou a alteração Git (HTTP $statusCode). Confira se a branch padrão está inicializada e se a referência ainda existe."
+        }
+        429 -> "O GitHub limitou as requisições (HTTP 429). Aguarde e tente novamente."
+        in 500..599 -> "O GitHub apresentou uma falha temporária (HTTP $statusCode). Tente novamente."
+        else -> "O GitHub respondeu HTTP $statusCode durante a operação de build."
+    }
+}
+
 internal fun verifyPublishedApkChecksum(expectedChecksum: String?, actualChecksum: String) {
     val expected = expectedChecksum?.trim()?.takeIf { SHA256_DIGEST_PATTERN.matches(it) }
         ?: throw IOException("O artefato não contém um SHA-256 válido para o APK.")
@@ -330,9 +357,16 @@ class GitHubAndroidBuildAdapter(
         try {
             apiCall("PUT", url, token, body)
         } catch (error: GitHubBuildException) {
+            if (error.statusCode == 403 &&
+                (error.message.orEmpty().contains("proteção", ignoreCase = true) ||
+                    error.message.orEmpty().contains("regra de branch", ignoreCase = true))
+            ) {
+                throw IOException(error.message, error)
+            }
             if (error.statusCode == 403 || error.statusCode == 404) {
                 throw IOException(
-                    "O token precisa de Contents: Read and write e Workflows: Read and write no repositório privado.",
+                    "O GitHub não conseguiu instalar o workflow. Confirme Contents: Read and write, Workflows: Read and write, acesso à branch padrão e regras de proteção do repositório.",
+                    error,
                 )
             }
             throw error
@@ -462,7 +496,7 @@ class GitHubAndroidBuildAdapter(
         require(owner.matches(OWNER_PATTERN)) { "O proprietário do repositório GitHub não é válido." }
         require(repository.matches(REPOSITORY_PATTERN)) { "O nome do repositório GitHub não é válido." }
         require(token.isNotBlank() && token.length <= 512 && !token.any { it.isWhitespace() }) {
-            "Cole um token pessoal do GitHub válido. O token não é enviado ao modelo de IA."
+            "A sessão OAuth do GitHub não forneceu um token de acesso válido. Reconecte a conta nas Configurações."
         }
     }
 
@@ -496,16 +530,13 @@ class GitHubAndroidBuildAdapter(
         client.newCall(builder.build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val message = when (response.code) {
-                    401 -> "O GitHub recusou o token. Confirme se ele está válido."
-                    403 -> "O GitHub bloqueou a operação. Confira as permissões do token, a cota da API e se Actions está habilitado."
-                    404 -> "O GitHub não encontrou o repositório, workflow ou recurso solicitado. Confira owner/nome e permissões."
-                    409, 422 -> "O GitHub recusou a alteração Git. Verifique se o repositório tem uma branch padrão inicializada."
-                    429 -> "O GitHub limitou as requisições. Tente novamente mais tarde."
-                    in 500..599 -> "O GitHub apresentou uma falha temporária."
-                    else -> "O GitHub respondeu HTTP ${response.code}."
-                }
-                throw GitHubBuildException(response.code, message)
+                val providerMessage = runCatching {
+                    JSONObject(text).optString("message").lowercase()
+                }.getOrDefault("")
+                throw GitHubBuildException(
+                    response.code,
+                    classifyGitHubBuildFailure(response.code, providerMessage),
+                )
             }
             return text
         }
