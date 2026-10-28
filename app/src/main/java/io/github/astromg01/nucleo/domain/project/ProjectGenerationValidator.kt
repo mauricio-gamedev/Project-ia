@@ -200,7 +200,7 @@ object ProjectGenerationValidator {
     private fun isValidXml(content: String): Boolean {
         // Generated XML does not need DTDs/entities. Reject them before parsing so that a
         // platform XML parser that lacks a particular hardening flag cannot enable XXE.
-        if (Regex("""(?is)<!\\s*(DOCTYPE|ENTITY)\\b""").containsMatchIn(content)) return false
+        if (Regex("""(?is)<!\s*(DOCTYPE|ENTITY)\b""").containsMatchIn(content)) return false
         return runCatching {
             val factory = DocumentBuilderFactory.newInstance().apply {
                 isNamespaceAware = true
