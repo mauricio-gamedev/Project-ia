@@ -472,6 +472,7 @@ private fun ChatScreen(
     }
     val chatMemoryManager = remember { io.github.astromg01.nucleo.core.ai.ChatMemoryManager() }
     var draft by remember { mutableStateOf("") }
+    var recoveredOrphanMessageId by rememberSaveable { mutableStateOf("") }
     var creatorMode by remember { mutableStateOf(false) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
     var contentPlatform by remember { mutableStateOf("TikTok / Reels / Shorts") }
@@ -632,6 +633,16 @@ private fun ChatScreen(
             } finally {
                 onSendingChange(false)
             }
+        }
+    }
+
+    // If Android killed the process between saving the user turn and the model reply, recover it once.
+    // A prior repository-context consent is not silently reused during automatic recovery.
+    LaunchedEffect(messages.lastOrNull()?.id, sending) {
+        val last = messages.lastOrNull()
+        if (!sending && last != null && last.role == "user" && last.id != recoveredOrphanMessageId) {
+            recoveredOrphanMessageId = last.id
+            submitMessage(last.content, includeRepository = false)
         }
     }
 
