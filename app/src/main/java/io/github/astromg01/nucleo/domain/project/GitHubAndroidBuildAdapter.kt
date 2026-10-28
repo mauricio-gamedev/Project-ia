@@ -443,6 +443,9 @@ class GitHubAndroidBuildAdapter(
                             combined.appendLine("LOG: " + entry.name.take(160))
                             val entryBytes = readZipEntryAtMost(zip, MAX_BYTES_PER_LOG_ENTRY)
                             combined.appendLine(entryBytes.toString(Charsets.UTF_8))
+                            if (entryBytes.size >= MAX_BYTES_PER_LOG_ENTRY) {
+                                combined.appendLine("[log truncado pelo limite de tamanho]")
+                            }
                             combined.appendLine()
                         }
                         zip.closeEntry()
@@ -583,8 +586,11 @@ class GitHubAndroidBuildAdapter(
                         "app-debug.apk.sha256" -> {
                             if (checksumEntrySeen) throw IOException("O artefato contém checksums duplicados.")
                             checksumEntrySeen = true
-                            expectedSha = readZipEntryAtMost(zip, 2_048)
-                                .toString(Charsets.UTF_8)
+                            val checksumBytes = readZipEntryAtMost(zip, MAX_CHECKSUM_ENTRY_BYTES)
+                            if (checksumBytes.size >= MAX_CHECKSUM_ENTRY_BYTES) {
+                                throw IOException("O checksum publicado excedeu o limite esperado.")
+                            }
+                            expectedSha = checksumBytes.toString(Charsets.UTF_8)
                                 .trim()
                                 .split(Regex("\\s+"))
                                 .firstOrNull()
@@ -606,16 +612,20 @@ class GitHubAndroidBuildAdapter(
         }
     }
     private fun readZipEntryAtMost(input: ZipInputStream, maxBytes: Int): ByteArray {
+        require(maxBytes > 0) { "O limite de leitura do ZIP precisa ser positivo." }
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(256)
         var total = 0
-        while (true) {
-            val count = input.read(buffer)
+        while (total < maxBytes) {
+            val wanted = minOf(buffer.size, maxBytes - total)
+            val count = input.read(buffer, 0, wanted)
             if (count < 0) break
-            total += count
-            if (total > maxBytes) throw IOException("O checksum publicado excedeu o limite esperado.")
+            if (count == 0) continue
             output.write(buffer, 0, count)
+            total += count
         }
+        // The caller closes the entry after this bounded read; closeEntry() safely discards
+        // the remainder, so a long log entry does not discard all diagnostic output.
         return output.toByteArray()
     }
 
@@ -698,6 +708,7 @@ class GitHubAndroidBuildAdapter(
         private const val MAX_APK_BYTES = 120L * 1024L * 1024L
         private const val MAX_BUILD_LOG_ARCHIVE_BYTES = 8 * 1024 * 1024
         private const val MAX_BYTES_PER_LOG_ENTRY = 1_500_000
+        private const val MAX_CHECKSUM_ENTRY_BYTES = 2_048
         private const val MAX_RAW_LOG_CHARS = 200_000
         private const val MAX_DIAGNOSTIC_CHARS = 8_000
         private const val MAX_DIAGNOSTIC_LINES = 90
