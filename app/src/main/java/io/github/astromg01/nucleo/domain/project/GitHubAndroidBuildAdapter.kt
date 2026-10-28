@@ -49,6 +49,38 @@ data class BuiltAndroidArtifact(
     val runUrl: String,
 )
 
+
+/** Sanitized build failure with the run URL and the most relevant Gradle/compiler diagnostics. */
+class AndroidBuildFailureException(
+    val runUrl: String,
+    val conclusion: String,
+    val diagnostics: String,
+) : IOException(
+    "O Gradle não conseguiu compilar o projeto (resultado: " + conclusion + "). " +
+        (if (diagnostics.isBlank()) "Abra a execução para consultar o log." else "Os erros principais foram capturados para a correção assistida.") +
+        " Execução: " + runUrl,
+)
+
+internal fun sanitizeBuildDiagnostics(raw: String): String {
+    var safe = raw
+        .replace(Regex("(?i)(authorization\\\\s*[:=]\\\\s*bearer\\\\s+)[^\\\\s]+")) {
+            it.groupValues[1] + "[REDACTED]"
+        }
+        .replace(Regex("\\\\bgh[pousr]_[A-Za-z0-9_]{20,}\\\\b"), "[REDACTED]")
+        .replace(Regex("\\\\bsk-[A-Za-z0-9_-]{15,}\\\\b"), "[REDACTED]")
+        .replace(Regex("(?i)((?:api[_-]?key|access[_-]?token|password|secret)\\\\s*[=:]\\\\s*)[^\\\\s,;]+")) {
+            it.groupValues[1] + "[REDACTED]"
+        }
+    val important = Regex(
+        "(?i)(^\\\\s*e: |\\\\berror:|unresolved reference|cannot find symbol|compilation failed|failed with an exception|what went wrong|execution failed|could not resolve|could not find|manifest merger failed|duplicate class|type mismatch|expecting [a-z]+|not enough information to infer|is not abstract and does not implement|resource linking failed|aapt:|\\\\.kt:[0-9]+:[0-9]+|\\\\.java:[0-9]+:[0-9]+)"
+    )
+    val lines = safe.lineSequence().toList()
+    var selected = lines.filter { important.containsMatchIn(it) }
+    if (selected.isEmpty()) selected = lines.takeLast(40)
+    safe = selected.takeLast(MAX_DIAGNOSTIC_LINES).joinToString("\\\\n")
+    return safe.take(MAX_DIAGNOSTIC_CHARS)
+}
+
 /**
  * Builds Android projects in a user-owned PRIVATE GitHub repository with GitHub Actions.
  *
@@ -199,8 +231,16 @@ class GitHubAndroidBuildAdapter(
             onStatus("Gradle está compilando o APK. Isso pode levar alguns minutos…")
             val run = awaitRun(target, branch, token, onStatus)
             val runUrl = run.optString("html_url", target.htmlUrl + "/actions")
-            if (run.optString("conclusion") != "success") {
-                throw IOException("A compilação falhou no GitHub Actions. Abra a execução para ver o erro: $runUrl")
+            val conclusion = run.optString("conclusion", "unknown")
+            if (conclusion != "success") {
+                onStatus("O GitHub Actions terminou com falha. Recolhendo os erros principais do Gradle…")
+                val diagnostics = collectBuildDiagnostics(
+                    owner = owner,
+                    repository = repository,
+                    runId = run.optLong("id"),
+                    token = token,
+                )
+                throw AndroidBuildFailureException(runUrl, conclusion, diagnostics)
             }
 
             onStatus("Compilação concluída. Baixando e verificando o artefato…")
@@ -275,10 +315,6 @@ class GitHubAndroidBuildAdapter(
                     })
                 }
                 if (status == "completed") {
-                    if (current.optString("conclusion") != "success") {
-                        val url = current.optString("html_url", target.htmlUrl + "/actions")
-                        throw IOException("O Gradle não conseguiu compilar este projeto Android. Veja o log de build: $url")
-                    }
                     return current
                 }
             } else if (attempt == 3) {
@@ -287,6 +323,93 @@ class GitHubAndroidBuildAdapter(
         }
         val url = run?.optString("html_url")?.takeIf { it.isNotBlank() } ?: target.htmlUrl + "/actions"
         throw IOException("O GitHub Actions não concluiu o build dentro do limite de espera. A execução pode continuar em segundo plano: $url")
+    }
+
+    private fun collectBuildDiagnostics(
+        owner: String,
+        repository: String,
+        runId: Long,
+        token: String,
+    ): String {
+        if (runId <= 0L) return ""
+        return try {
+            val url = apiUrl("repos", owner, repository, "actions", "runs", runId.toString(), "jobs")
+                .newBuilder()
+                .addQueryParameter("per_page", "50")
+                .build()
+            val jobs = JSONObject(apiCall("GET", url, token)).optJSONArray("jobs") ?: JSONArray()
+            val failedJobs = (0 until jobs.length())
+                .mapNotNull { jobs.optJSONObject(it) }
+                .filter { it.optString("conclusion") == "failure" }
+                .take(MAX_DIAGNOSTIC_JOBS)
+            val raw = buildString {
+                failedJobs.forEach { job ->
+                    val id = job.optLong("id")
+                    if (id <= 0L) return@forEach
+                    appendLine("===== FAILED JOB: " + job.optString("name", "Android build") + " =====")
+                    appendLine(downloadJobLogs(owner, repository, id, token))
+                    appendLine()
+                }
+            }
+            sanitizeBuildDiagnostics(raw)
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun downloadJobLogs(
+        owner: String,
+        repository: String,
+        jobId: Long,
+        token: String,
+    ): String {
+        val request = Request.Builder()
+            .url(apiUrl("repos", owner, repository, "actions", "jobs", jobId.toString(), "logs"))
+            .header("Authorization", "Bearer " + token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", API_VERSION)
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw GitHubBuildException(response.code, "O GitHub não permitiu consultar o log da compilação.")
+            }
+            val body = response.body ?: return ""
+            val archive = ByteArrayOutputStream()
+            body.byteStream().use { input ->
+                val buffer = ByteArray(16 * 1024)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_BUILD_LOG_ARCHIVE_BYTES) {
+                        throw IOException("O arquivo de log excedeu o limite de diagnóstico.")
+                    }
+                    archive.write(buffer, 0, count)
+                }
+            }
+            val bytes = archive.toByteArray()
+            val combined = StringBuilder()
+            try {
+                ZipInputStream(bytes.inputStream()).use { zip ->
+                    while (combined.length < MAX_RAW_LOG_CHARS) {
+                        val entry = zip.nextEntry ?: break
+                        if (!entry.isDirectory) {
+                            combined.appendLine("LOG: " + entry.name.take(160))
+                            val entryBytes = readZipEntryAtMost(zip, MAX_BYTES_PER_LOG_ENTRY)
+                            combined.appendLine(entryBytes.toString(Charsets.UTF_8))
+                            combined.appendLine()
+                        }
+                        zip.closeEntry()
+                    }
+                }
+            } catch (_: java.util.zip.ZipException) {
+                // Some gateways may return the decoded text rather than a ZIP archive.
+                return bytes.toString(Charsets.UTF_8).take(MAX_RAW_LOG_CHARS)
+            }
+            return combined.toString().take(MAX_RAW_LOG_CHARS)
+        }
     }
 
     private suspend fun ensureWorkflow(target: GitHubBuildRepository, token: String) {
@@ -525,6 +648,12 @@ class GitHubAndroidBuildAdapter(
         private const val MAX_SOURCE_ARCHIVE_BYTES = 8L * 1024L * 1024L
         private const val MAX_ARTIFACT_ARCHIVE_BYTES = 160L * 1024L * 1024L
         private const val MAX_APK_BYTES = 120L * 1024L * 1024L
+        private const val MAX_BUILD_LOG_ARCHIVE_BYTES = 8 * 1024 * 1024
+        private const val MAX_BYTES_PER_LOG_ENTRY = 1_500_000
+        private const val MAX_RAW_LOG_CHARS = 200_000
+        private const val MAX_DIAGNOSTIC_CHARS = 8_000
+        private const val MAX_DIAGNOSTIC_LINES = 90
+        private const val MAX_DIAGNOSTIC_JOBS = 3
         private const val MAX_POLL_ATTEMPTS = 120
         private const val POLL_INTERVAL_MILLIS = 10_000L
         private val OWNER_PATTERN = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37})")
