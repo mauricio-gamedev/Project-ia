@@ -106,7 +106,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedRepository()) }
     var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
 
-    var projectName by remember { mutableStateOf("Meu projeto")
+    var projectName by remember { mutableStateOf("Meu projeto") }
     var description by remember { mutableStateOf("") }
     var profile by remember { mutableStateOf(ProjectProfile.ANDROID_APP) }
     var remoteConsent by remember { mutableStateOf(false) }
