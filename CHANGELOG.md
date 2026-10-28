@@ -3,7 +3,14 @@
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
 
-## Unreleased — 2026-10-28
+## 0.8.1-alpha — 2026-10-28
+
+### Chat readability and provider recovery
+- Expanded assistant responses, adjusted typography and spacing, and compacted the chat status banner.
+- Added selectable message text, one-tap copy controls, and safe Markdown formatting for headings, lists, emphasis, and code.
+- Added a persisted OLED Black theme with high-contrast accents and matching Android system bars.
+- Restored the established provider request timeout behavior and clear stale primary-route cooldowns when model, endpoint, provider settings, or API key changes.
+- Added a manual AutoRouter action to clear temporary cooldowns across configured routes.
 
 ### Project Factory generation and validation
 - Retry a malformed or incomplete AI file manifest once with the parser's exact rejection reason; provider/network failures are not blindly repeated.
