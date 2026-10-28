@@ -8,7 +8,7 @@ import org.junit.Test
 class ChatMessageFormattingTest {
     @Test
     fun rendersHeadingsBulletsAndInlineMarkdownAsReadableText() {
-        val rendered = formatChatMarkdown("# Título\n\n- item **forte**\nLinha com \`código\`")
+        val rendered = formatChatMarkdown("# Título\n\n- item **forte**\nLinha com `código`")
 
         assertEquals("Título\n\n• item forte\nLinha com código", rendered.text)
         assertTrue(rendered.spanStyles.any { it.item.fontWeight == FontWeight.Bold })
@@ -17,7 +17,7 @@ class ChatMessageFormattingTest {
 
     @Test
     fun fencedCodeIsKeptButFenceMarkersAreHidden() {
-        val rendered = formatChatMarkdown("Exemplo:\n\`\`\`kotlin\nval total = 2\n\`\`\`")
+        val rendered = formatChatMarkdown("Exemplo:\n```kotlin\nval total = 2\n```")
 
         assertEquals("Exemplo:\nval total = 2", rendered.text)
         assertTrue(rendered.spanStyles.any { it.item.fontFamily != null })
