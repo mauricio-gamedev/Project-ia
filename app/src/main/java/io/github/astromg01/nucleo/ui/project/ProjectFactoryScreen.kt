@@ -1224,22 +1224,36 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                                     val updatedFiles = currentSnapshot.files.map { original ->
                                                         replacements[original.path] ?: original
                                                     }
+                                                    val proposedDraft = ProjectDraft(
+                                                        name = currentStaged.name,
+                                                        profile = currentStaged.profile,
+                                                        description = description.trim(),
+                                                        files = updatedFiles,
+                                                    )
+                                                    val completedDraft = AndroidProjectScaffold.complete(proposedDraft).draft
+                                                    val candidateIssues = ProjectGenerationValidator.validate(completedDraft)
                                                     val candidate = withContext(Dispatchers.IO) {
-                                                        ProjectFactory().stage(
-                                                            ProjectDraft(
-                                                                name = currentStaged.name,
-                                                                profile = currentStaged.profile,
-                                                                description = description.trim(),
-                                                                files = updatedFiles,
-                                                            ),
-                                                            stagingRoot,
-                                                        )
+                                                        ProjectFactory().stage(completedDraft, stagingRoot)
+                                                    }
+                                                    val actualDiffs = completedDraft.files.mapNotNull { changed ->
+                                                        val original = originalByPath[changed.path]
+                                                        if (original == null || original.content != changed.content) {
+                                                            ProjectRepairDiffEntry(changed.path, original?.content.orEmpty(), changed.content)
+                                                        } else {
+                                                            null
+                                                        }
                                                     }
                                                     repairCandidate = candidate
-                                                    repairSummary = proposal.summary
-                                                    repairDiffs = changedFiles
+                                                    repairCandidateDraft = completedDraft
+                                                    repairCandidateValidationIssues = candidateIssues
+                                                    repairSummary = if (candidateIssues.isEmpty()) {
+                                                        proposal.summary + " A validação estrutural passou; ainda não foi compilado."
+                                                    } else {
+                                                        proposal.summary + " Ainda restam ${candidateIssues.size} problema(s); a compilação continuará bloqueada até corrigir."
+                                                    }
+                                                    repairDiffs = actualDiffs.ifEmpty { changedFiles }
                                                     status = "Proposta criada por ${response.providerName}/${response.modelName} num staging separado. O rascunho original continua intacto; nenhum teste foi executado."
-                                                    statusIsError = false
+                                                    statusIsError = candidateIssues.isNotEmpty()
                                                 } catch (cancelled: CancellationException) {
                                                     throw cancelled
                                                 } catch (error: Exception) {
@@ -1291,13 +1305,26 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     onClick = {
                                         val previous = stagedProject
                                         stagedProject = candidate
+                                        currentDraft = repairCandidateDraft
+                                        generationValidationIssues = repairCandidateValidationIssues
                                         repairCandidate = null
+                                        repairCandidateDraft = null
+                                        repairCandidateValidationIssues = emptyList()
                                         reviewSnapshot = null
                                         reviewReport = null
                                         repairSummary = ""
                                         repairDiffs = emptyList()
-                                        status = "Rascunho corrigido aplicado como nova revisão. O projeto original foi preservado até a confirmação; o código ainda não foi executado."
-                                        statusIsError = false
+                                        buildFailureDiagnostics = ""
+                                        buildFailureRunUrl = ""
+                                        buildStatus = ""
+                                        builtApk?.file?.delete()
+                                        builtApk = null
+                                        status = if (generationValidationIssues.isEmpty()) {
+                                            "Rascunho corrigido aplicado como nova revisão. A validação estrutural passou; ainda falta executar o Gradle."
+                                        } else {
+                                            "Nova revisão aplicada, mas restam ${generationValidationIssues.size} problema(s). A compilação continua bloqueada."
+                                        }
+                                        statusIsError = generationValidationIssues.isNotEmpty()
                                         if (previous != null) {
                                             scope.launch {
                                                 try {
