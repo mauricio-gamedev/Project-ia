@@ -363,7 +363,7 @@ object AndroidProjectScaffold {
         val required = KNOWN_IMPORT_DEPENDENCIES.filter { dependency ->
             val importPattern = Regex(
                 "(?m)^\\s*import\\s+" +
-                    Regex.escape(dependency.importPrefix) + "(?:\\\\.|\\\\s)",
+                    Regex.escape(dependency.importPrefix) + "(?:\\.|\\s)",
             )
             importPattern.containsMatchIn(source) && !buildFile.content.contains(dependency.module)
         }
