@@ -243,7 +243,7 @@ class ProjectCodeReviewService(
     }
 
     private companion object {
-        const val MAX_REVIEW_FILES = 8
+        const val MAX_REVIEW_FILES = 24
         const val REVIEW_CHARS_PER_FILE = 4_000
         const val MAX_REVIEW_TOTAL_CHARS = 30_000
         const val MAX_REVIEW_OUTPUT_TOKENS = 4_000
