@@ -109,7 +109,7 @@ internal fun sanitizeBuildDiagnostics(raw: String): String {
     var selected = lines.filter { important.containsMatchIn(it) }
     if (selected.isEmpty()) selected = lines.takeLast(40)
     safe = selected.takeLast(90).joinToString("\n")
-    return safe.take(8_000)
+    return safe.takeLast(MAX_DIAGNOSTIC_CHARS)
 }
 
 /**
