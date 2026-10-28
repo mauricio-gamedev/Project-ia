@@ -174,11 +174,21 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            githubBuildTokenAvailable = false
+            val storedTokenExists = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
+            val message = error.message.orEmpty()
+            val sessionRejected = message.contains("expirou", ignoreCase = true) ||
+                message.contains("revogad", ignoreCase = true) ||
+                message.contains("HTTP 401", ignoreCase = true) ||
+                message.contains("recusou a sessão OAuth", ignoreCase = true)
+            githubBuildTokenAvailable = storedTokenExists && !sessionRejected
             githubSessionVerified = false
             githubAccountLogin = null
             if (showStatus) {
-                buildStatus = "Existe uma credencial GitHub salva, mas não consegui validar a sessão: ${error.message ?: "erro de autenticação"}. Reautorize somente se a sessão realmente expirou."
+                buildStatus = when {
+                    sessionRejected -> "O GitHub recusou a sessão salva: ${message.ifBlank { "a autorização expirou" }}. Reconecte a conta."
+                    storedTokenExists -> "Há uma credencial salva, mas não consegui validar a conta agora: ${message.ifBlank { "falha temporária de rede" }}. Confira a conexão e tente sincronizar novamente."
+                    else -> "Não há uma credencial GitHub disponível neste dispositivo. Conecte a conta nas Configurações."
+                }
             }
         }
     }
@@ -692,10 +702,15 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 scope.launch {
                                     try {
                                         val token = githubOAuthSession.validAccessToken()
-                                            ?: throw java.io.IOException("Reconecte sua conta GitHub.")
-                                        val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
+                                            ?: throw java.io.IOException("Nenhuma sessão OAuth GitHub válida foi encontrada. Reconecte a conta.")
+                                        val login = GitHubConnector().authenticatedUserLogin(token)
+                                        githubAccountLogin = login
+                                        githubBuildTokenAvailable = true
+                                        githubSessionVerified = true
+                                        val target = GitHubAndroidBuildAdapter(context)
+                                            .verifyRepository(repository.owner, repository.name, token)
                                         selectedBuildRepository = repository
-                                        buildStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
+                                        buildStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name} para a conta @${login}."
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (error: Exception) {
@@ -793,7 +808,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         scope.launch {
                                             try {
                                                 val token = githubOAuthSession.validAccessToken()
-                                                    ?: throw java.io.IOException("Reconecte sua conta GitHub em Configurações.")
+                                                    ?: throw java.io.IOException("Nenhuma sessão OAuth GitHub válida foi encontrada. Reconecte a conta em Configurações.")
+                                                val login = GitHubConnector().authenticatedUserLogin(token)
+                                                githubAccountLogin = login
+                                                githubBuildTokenAvailable = true
+                                                githubSessionVerified = true
+                                                buildStatus = "Conta GitHub @${login} validada. Preparando o repositório de build…"
                                                 val artifact = GitHubAndroidBuildAdapter(context).build(
                                                     stagedProject = staged,
                                                     stagingRoot = stagingRoot,
