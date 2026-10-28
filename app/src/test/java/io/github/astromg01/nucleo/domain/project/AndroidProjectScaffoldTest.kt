@@ -232,6 +232,109 @@ class AndroidProjectScaffoldTest {
     }
 
     @Test
+    fun bindsManifestLauncherToTheActualGeneratedActivityPackage() {
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Binding",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile(
+                        "app/src/main/AndroidManifest.xml",
+                        """
+                            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                              <application android:label="Binding">
+                                <activity android:name=".MainActivity" android:exported="true">
+                                  <intent-filter>
+                                    <action android:name="android.intent.action.MAIN" />
+                                    <category android:name="android.intent.category.LAUNCHER" />
+                                  </intent-filter>
+                                </activity>
+                              </application>
+                            </manifest>
+                        """.trimIndent(),
+                    ),
+                    GeneratedProjectFile(
+                        "app/src/main/java/com/example/actual/MainActivity.kt",
+                        """
+                            package com.example.actual
+                            import androidx.activity.ComponentActivity
+                            class MainActivity : ComponentActivity() {}
+                        """.trimIndent(),
+                    ),
+                ),
+            ),
+        )
+
+        val manifest = result.draft.files.first { it.path == "app/src/main/AndroidManifest.xml" }.content
+        assertTrue(manifest.contains("android:name=\"com.example.actual.MainActivity\""))
+        assertFalse(manifest.contains("android:name=\".MainActivity\""))
+    }
+
+    @Test
+    fun repairsAppGradleThatOmitsKotlinComposePluginAndKeepsLiteralDependencies() {
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Broken plugins",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile(
+                        "settings.gradle.kts",
+                        """
+                            pluginManagement {
+                                repositories {
+                                    google()
+                                    mavenCentral()
+                                    gradlePluginPortal()
+                                }
+                            }
+                            rootProject.name = "Broken plugins"
+                            include(":app")
+                        """.trimIndent(),
+                    ),
+                    GeneratedProjectFile(
+                        "build.gradle.kts",
+                        """
+                            plugins {
+                                id("com.android.application") version "8.13.2" apply false
+                                id("org.jetbrains.kotlin.android") version "2.3.21" apply false
+                                id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+                            }
+                        """.trimIndent(),
+                    ),
+                    GeneratedProjectFile(
+                        "app/build.gradle.kts",
+                        """
+                            plugins { id("com.android.application") }
+                            android {
+                                namespace = "com.example.broken"
+                                compileSdk = 36
+                                defaultConfig {
+                                    applicationId = "com.example.broken"
+                                    minSdk = 26
+                                    targetSdk = 36
+                                }
+                            }
+                            dependencies {
+                                implementation("androidx.camera:camera-camera2:1.4.2")
+                            }
+                        """.trimIndent(),
+                    ),
+                    GeneratedProjectFile(
+                        "app/src/main/java/com/example/broken/MainActivity.kt",
+                        "package com.example.broken\nimport androidx.activity.ComponentActivity\nclass MainActivity : ComponentActivity() {}",
+                    ),
+                ),
+            ),
+        )
+
+        val appBuild = result.draft.files.first { it.path == "app/build.gradle.kts" }.content
+        assertTrue(result.replacedPaths.contains("app/build.gradle.kts"))
+        assertTrue(appBuild.contains("id(\"org.jetbrains.kotlin.android\")"))
+        assertTrue(appBuild.contains("id(\"org.jetbrains.kotlin.plugin.compose\")"))
+        assertTrue(appBuild.contains("androidx.camera:camera-camera2:1.4.2"))
+    }
+
+    @Test
     fun leavesNonAndroidProfilesUnchanged() {
         val draft = ProjectDraft(
             name = "Website",
