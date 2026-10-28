@@ -61,14 +61,45 @@ class AndroidBuildFailureException(
         " Execução: " + runUrl,
 )
 
+internal fun classifyGitHubBuildFailure(statusCode: Int, providerMessage: String = ""): String {
+    val detail = providerMessage.lowercase()
+    return when (statusCode) {
+        401 -> "O GitHub recusou a sessão OAuth (HTTP 401). Ela pode ter expirado ou sido revogada; sincronize ou reconecte a conta."
+        403 -> when {
+            detail.contains("protected") || detail.contains("rule violations") ||
+                detail.contains("cannot update this protected ref") ->
+                "A conta GitHub foi autenticada, mas uma regra de proteção da branch bloqueou a instalação/atualização do workflow. Use um repositório privado de build dedicado com uma branch padrão que permita essa configuração, ou ajuste a regra por um caminho autorizado. O Núcleo não vai contornar a proteção."
+            detail.contains("rate limit") || detail.contains("api rate limit") ->
+                "O GitHub limitou as requisições da API. Aguarde a cota reiniciar e tente novamente."
+            detail.contains("resource not accessible") || detail.contains("insufficient") ->
+                "A sessão existe, mas não tem permissão para este recurso. Confirme os escopos repo/workflow, acesso de escrita ao repositório e se GitHub Actions está habilitado."
+            else ->
+                "O GitHub bloqueou a operação (HTTP 403). A conta pode estar conectada, mas falta permissão de escrita/workflow, a cota da API foi atingida ou Actions está desabilitado."
+        }
+        404 -> "O GitHub não encontrou o repositório, workflow ou recurso. Em repositórios privados, confirme owner/nome e se a conta autorizada tem acesso."
+        409, 422 -> when {
+            detail.contains("protected") || detail.contains("rule violations") ->
+                "Uma regra de proteção ou política do repositório bloqueou a alteração. Use uma configuração de build autorizada; o Núcleo não vai ignorar regras de branch."
+            else ->
+                "O GitHub recusou a alteração Git (HTTP $statusCode). Confira se a branch padrão está inicializada e se a referência ainda existe."
+        }
+        429 -> "O GitHub limitou as requisições (HTTP 429). Aguarde e tente novamente."
+        in 500..599 -> "O GitHub apresentou uma falha temporária (HTTP $statusCode). Tente novamente."
+        else -> "O GitHub respondeu HTTP $statusCode durante a operação de build."
+    }
+}
+
 internal fun sanitizeBuildDiagnostics(raw: String): String {
     var safe = raw
         .replace(Regex("(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s]+")) {
             it.groupValues[1] + "[REDACTED]"
         }
         .replace(Regex("\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b"), "[REDACTED]")
+        .replace(Regex("\\bgithub_pat_[A-Za-z0-9_]{20,}\\b"), "[REDACTED]")
         .replace(Regex("\\bsk-[A-Za-z0-9_-]{15,}\\b"), "[REDACTED]")
-        .replace(Regex("(?i)((?:api[_-]?key|access[_-]?token|password|secret)\\s*[=:]\\s*)[^\\s,;]+")) {
+        .replace(Regex("\\bAKIA[0-9A-Z]{16}\\b"), "[REDACTED]")
+        .replace(Regex("\\bAIza[0-9A-Za-z_-]{30,}\\b"), "[REDACTED]")
+        .replace(Regex("(?i)((?:api[_-]?key|(?:access|refresh)?[_-]?token|client[_-]?secret|password|secret|credential)\\s*[=:]\\s*)[^\\s,;]+")) {
             it.groupValues[1] + "[REDACTED]"
         }
     val important = Regex(
@@ -453,9 +484,14 @@ class GitHubAndroidBuildAdapter(
         try {
             apiCall("PUT", url, token, body)
         } catch (error: GitHubBuildException) {
+            val detail = error.message.orEmpty()
+            if (error.statusCode == 403 && detail.contains("regra de proteção", ignoreCase = true)) {
+                throw IOException(detail, error)
+            }
             if (error.statusCode == 403 || error.statusCode == 404) {
                 throw IOException(
-                    "O token precisa de Contents: Read and write e Workflows: Read and write no repositório privado.",
+                    "O GitHub não conseguiu instalar o workflow. Confirme Contents: Read and write, Workflows: Read and write, acesso à branch padrão e regras de proteção do repositório. $detail",
+                    error,
                 )
             }
             throw error
@@ -619,16 +655,13 @@ class GitHubAndroidBuildAdapter(
         client.newCall(builder.build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val message = when (response.code) {
-                    401 -> "O GitHub recusou o token. Confirme se ele está válido."
-                    403 -> "O GitHub bloqueou a operação. Confira as permissões do token, a cota da API e se Actions está habilitado."
-                    404 -> "O GitHub não encontrou o repositório, workflow ou recurso solicitado. Confira owner/nome e permissões."
-                    409, 422 -> "O GitHub recusou a alteração Git. Verifique se o repositório tem uma branch padrão inicializada."
-                    429 -> "O GitHub limitou as requisições. Tente novamente mais tarde."
-                    in 500..599 -> "O GitHub apresentou uma falha temporária."
-                    else -> "O GitHub respondeu HTTP ${response.code}."
-                }
-                throw GitHubBuildException(response.code, message)
+                val providerMessage = runCatching {
+                    org.json.JSONObject(text).optString("message").take(400)
+                }.getOrDefault("")
+                throw GitHubBuildException(
+                    response.code,
+                    classifyGitHubBuildFailure(response.code, providerMessage),
+                )
             }
             return text
         }
