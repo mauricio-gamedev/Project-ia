@@ -24,6 +24,16 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
+private val SHA256_DIGEST_PATTERN = Regex("[0-9a-fA-F]{64}")
+
+internal fun verifyPublishedApkChecksum(expectedChecksum: String?, actualChecksum: String) {
+    val expected = expectedChecksum?.trim()?.takeIf { SHA256_DIGEST_PATTERN.matches(it) }
+        ?: throw IOException("O artefato não contém um SHA-256 válido para o APK.")
+    if (!SHA256_DIGEST_PATTERN.matches(actualChecksum) || !expected.equals(actualChecksum, ignoreCase = true)) {
+        throw IOException("O SHA-256 do APK não corresponde ao checksum publicado pelo GitHub Actions.")
+    }
+}
+
 data class GitHubBuildRepository(
     val owner: String,
     val name: String,
@@ -365,63 +375,62 @@ class GitHubAndroidBuildAdapter(
     }
 
     private fun extractAndVerifyApk(archive: File, destination: File): String {
-        var expectedSha: String? = null
-        var extracted = false
-        var totalBytes = 0L
-        ZipInputStream(BufferedInputStream(FileInputStream(archive))).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (entry.isDirectory) {
-                    zip.closeEntry()
-                    continue
-                }
-                val leaf = entry.name.substringAfterLast('/').substringAfterLast('\\')
-                when {
-                    (leaf == "app-debug.apk" || leaf.endsWith(".apk")) && !extracted -> {
-                        FileOutputStream(destination).use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            val digest = MessageDigest.getInstance("SHA-256")
-                            var fileBytes = 0L
-                            while (true) {
-                                val count = zip.read(buffer)
-                                if (count < 0) break
-                                fileBytes += count
-                                totalBytes += count
-                                if (fileBytes > MAX_APK_BYTES || totalBytes > MAX_APK_BYTES) {
-                                    throw IOException("O APK excede o limite de tamanho permitido.")
+        try {
+            var expectedSha: String? = null
+            var checksumEntrySeen = false
+            var extracted = false
+            var totalBytes = 0L
+            ZipInputStream(BufferedInputStream(FileInputStream(archive))).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) {
+                        zip.closeEntry()
+                        continue
+                    }
+                    when (entry.name) {
+                        "app-debug.apk" -> {
+                            if (extracted) throw IOException("O artefato contém mais de um APK de depuração.")
+                            FileOutputStream(destination).use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                var fileBytes = 0L
+                                while (true) {
+                                    val count = zip.read(buffer)
+                                    if (count < 0) break
+                                    fileBytes += count
+                                    totalBytes += count
+                                    if (fileBytes > MAX_APK_BYTES || totalBytes > MAX_APK_BYTES) {
+                                        throw IOException("O APK excede o limite de tamanho permitido.")
+                                    }
+                                    output.write(buffer, 0, count)
                                 }
-                                digest.update(buffer, 0, count)
-                                output.write(buffer, 0, count)
                             }
-                            val actual = digest.digest().joinToString("") { "%02x".format(it) }
                             extracted = true
                         }
+                        "app-debug.apk.sha256" -> {
+                            if (checksumEntrySeen) throw IOException("O artefato contém checksums duplicados.")
+                            checksumEntrySeen = true
+                            expectedSha = readZipEntryAtMost(zip, 2_048)
+                                .toString(Charsets.UTF_8)
+                                .trim()
+                                .split(Regex("\\s+"))
+                                .firstOrNull()
+                        }
+                        else -> throw IOException("O artefato contém um arquivo inesperado: ${entry.name}")
                     }
-                    leaf.endsWith(".sha256", ignoreCase = true) -> {
-                        expectedSha = readZipEntryAtMost(zip, 2_048)
-                            .toString(Charsets.UTF_8)
-                            .trim()
-                            .split(Regex("\\s+"))
-                            .firstOrNull()
-                            ?.lowercase()
-                    }
-                    else -> while (zip.read(ByteArray(4 * 1024)) >= 0) { /* ignore unrelated artifact members */ }
+                    zip.closeEntry()
                 }
-                zip.closeEntry()
             }
-        }
-        if (!extracted || !destination.isFile || destination.length() <= 0L) {
+            if (!extracted || !destination.isFile || destination.length() <= 0L) {
+                throw IOException("O artefato baixado não contém app-debug.apk válido.")
+            }
+            val actualSha = sha256File(destination)
+            verifyPublishedApkChecksum(expectedSha, actualSha)
+            return actualSha
+        } catch (error: Exception) {
             destination.delete()
-            throw IOException("O artefato baixado não contém um APK válido.")
+            throw error
         }
-        val actualSha = sha256File(destination)
-        if (expectedSha != null && expectedSha != actualSha) {
-            destination.delete()
-            throw IOException("O SHA-256 do APK não corresponde ao checksum publicado pelo GitHub Actions.")
-        }
-        return actualSha
     }
-
     private fun readZipEntryAtMost(input: ZipInputStream, maxBytes: Int): ByteArray {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(256)
@@ -541,6 +550,8 @@ class GitHubAndroidBuildAdapter(
                 steps:
                   - name: Checkout private build workspace
                     uses: actions/checkout@v4
+                    with:
+                      persist-credentials: false
                   - name: Set up JDK 17
                     uses: actions/setup-java@v4
                     with:
