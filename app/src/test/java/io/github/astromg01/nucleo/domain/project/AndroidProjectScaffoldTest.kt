@@ -232,6 +232,49 @@ class AndroidProjectScaffoldTest {
     }
 
     @Test
+    fun manifestLauncherIsRepairedToMatchTheActualActivityClass() {
+        val draft = ProjectDraft(
+            name = "Manifest mismatch",
+            profile = ProjectProfile.ANDROID_APP,
+            description = "A simple screen.",
+            files = listOf(
+                GeneratedProjectFile(
+                    "app/src/main/java/example/MainActivity.kt",
+                    """
+                        package example
+                        import androidx.activity.ComponentActivity
+                        class MainActivity : ComponentActivity() {}
+                    """.trimIndent(),
+                ),
+                GeneratedProjectFile(
+                    "app/src/main/AndroidManifest.xml",
+                    """
+                        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                          <application android:label="Mismatch">
+                            <activity android:name="example.MissingActivity" android:exported="true">
+                              <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+                                <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                            </activity>
+                          </application>
+                        </manifest>
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val result = AndroidProjectScaffold.complete(draft)
+        val manifest = result.draft.files.first { it.path == "app/src/main/AndroidManifest.xml" }.content
+
+        assertTrue(manifest.contains("android:name=\"example.MainActivity\""))
+        assertFalse(manifest.contains("android:name=\"example.MissingActivity\""))
+        assertTrue(ProjectGenerationValidator.validate(result.draft).none {
+            it.contains("não foi encontrada uma Activity compatível")
+        })
+    }
+
+    @Test
     fun leavesNonAndroidProfilesUnchanged() {
         val draft = ProjectDraft(
             name = "Website",
