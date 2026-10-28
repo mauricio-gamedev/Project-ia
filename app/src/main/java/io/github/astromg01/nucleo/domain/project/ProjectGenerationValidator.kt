@@ -213,8 +213,6 @@ object ProjectGenerationValidator {
                 runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
                 runCatching { isXIncludeAware = false }
                 runCatching { isExpandEntityReferences = false }
-                runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
-                runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
             }
             val builder = factory.newDocumentBuilder()
             builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
