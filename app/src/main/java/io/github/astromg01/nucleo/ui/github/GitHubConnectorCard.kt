@@ -324,7 +324,13 @@ fun GitHubConnectorCard(container: AppContainer) {
                     )
                 }
                 OutlinedButton(enabled = !busy, onClick = {
-                    if (!session.hasStoredAccessToken()) connected = false else {
+                    if (!session.hasStoredAccessToken()) {
+                        connected = false
+                        sessionVerified = false
+                        accountLogin = null
+                        repositories = emptyList()
+                        status = "Nenhuma credencial GitHub está salva neste dispositivo. Conecte a conta para continuar."
+                    } else {
                         busy = true
                         scope.launch {
                             try {
