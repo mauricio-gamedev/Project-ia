@@ -4,7 +4,7 @@
 **Current main release:** `0.7.1-alpha` (`versionCode 11`)  
 **Consolidated candidate in PR #8:** `0.8.1-alpha` (`versionCode 13`)  
 **Default branch:** `main`  
-**Handoff status:** PR #8 contains Project Factory validation/repair, GitHub session/build synchronization, chat readability/OLED, and provider cooldown recovery. CI for the latest candidate head must be confirmed before distribution. PR #8 is open; protected `main` and disabled auto-merge currently block integration through the connected GitHub path.
+**Handoff status:** PR #8 contains Project Factory validation/repair, GitHub session/build synchronization, chat readability/OLED, and provider cooldown recovery. The Android-specific Gradle regex failure found during device testing is fixed, and CI passed on source/test SHA `2cb10abf3567c65011d993dedb2932f3c983a42d`; the fixed APK still needs an on-device retest. PR #8 remains open; protected `main` and disabled auto-merge block integration through the connected GitHub path.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
@@ -17,7 +17,7 @@
 - Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (consolidated fix) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
 - Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.1-alpha`, `versionCode 13` so it can upgrade earlier alpha installs.
 - The owner reported the previously installed alpha and GitHub connector worked; no end-to-end device test of PR #8 has yet been reported.
-- PR #8 head at the last refresh: `ff42c7957cfb3480bb219bf595a60f12aafd93c3`. GitHub Actions run [40772670885](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40772670885) for that exact head was in progress; older green runs predate the final helper-file consolidation and must not be treated as validation of this candidate.
+- The Gradle regex fix and regression test are in commit `2cb10abf3567c65011d993dedb2932f3c983a42d`. GitHub Actions run [40777424598](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40777424598) passed on that exact SHA, including unit tests, debug APK assembly, artifact signature verification, checksum generation, and artifact upload. Use only an artifact matching the current validated source SHA.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
 
@@ -31,7 +31,7 @@
 - Cloud build diagnostics capture the relevant Gradle job logs, retain final error lines, redact common credential-like values, and only send diagnostics to AI after explicit consent. A repair remains a proposal and must be built again before it counts as verified.
 - Consolidated chat updates include wider/readable assistant messages, message copy/selection, safe Markdown styling, persisted OLED Black, and cooldown invalidation when the primary model/endpoint/key changes.
 - Tests cover manifest parsing/retry, structural validation, Android launcher matching, diagnostic sanitization, cooldown invalidation, and Markdown formatting.
-- The last failed CI attempt after the chat-screen consolidation correctly exposed missing theme/formatter source files. Those files and their tests have now been restored on the branch; the CI for the latest head must pass before the candidate is distributed.
+- Owner device testing on 2026-10-28 exposed `Syntax error in regexp pattern near index 21` while generating Android files. The cause was an unescaped literal closing brace in Android Gradle block regexes (`plugins`, `android`, `dependencies`), which works differently in desktop/JVM regex tests than Android's ICU-backed engine. All three closing braces are now escaped, and a Kotlin DSL preservation regression test was added. The passing CI validates the changed candidate build and JVM tests, but the device-level generation smoke test still needs to be repeated on the new APK.
 - The latest known repository state includes active ruleset [protect main](https://github.com/mauricio-gamedev/Project-ia/rules/26013092). It has an `update` rule, no bypass actors, and `current_user_can_bypass = never`. The connected integration's merge attempt on the prior PR returned HTTP 405; auto-merge is disabled. Do not bypass/disable this rule without an authorized owner/admin action.
 
 ## Repository presentation already landed
@@ -74,9 +74,9 @@ Current live state (2026-10-28):
 
 ## Next-action queue
 
-1. Verify the latest Android CI run for PR #8's exact current head SHA. If it fails, fix the reported issue and repeat until the candidate passes.
-2. Download the APK artifact from the matching successful run and verify the signing mode/checksum. Do not use an artifact from a previous source SHA.
-3. Run on-device smoke tests for generation with one incomplete response, structural repair, GitHub session sync, private build repository validation, remote APK build, and AI-assisted build-log repair.
+1. Verify the latest Android CI run for PR #8's exact current head SHA, including the checkpoint update commit. If it fails, fix the reported issue and repeat until the candidate passes.
+2. Download the APK artifact from the successful run matching that exact head SHA and verify the signing mode/checksum. Do not use an artifact from a previous source SHA.
+3. Install that APK on-device and retry **Generate and validate files** to verify the regex crash is gone; then smoke-test structural repair, GitHub session sync, private build repository validation, remote APK build, and consent-gated AI-assisted build-log repair.
 4. If PR #8 is green but cannot merge, keep it open and report the active `protect main` update rule/disabled auto-merge blocker; an authorized owner/admin must adjust it.
 5. Repository description/topics remain unconfigured because no authorized metadata-write path was exposed. Do not work around that with unrelated code.
 6. For future work, start from fresh `main`, inspect source/tests, implement, validate on the exact SHA, review, open PR, and update this checkpoint.
