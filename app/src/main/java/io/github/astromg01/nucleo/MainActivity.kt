@@ -1253,6 +1253,9 @@ private fun SettingsScreen(
                                     if (apiKey.isNotBlank()) {
                                         container.secretStore.saveApiKey(apiKey.trim())
                                         keySaved = true
+                                        container.providerPreferences.clearCooldown(
+                                            ProviderConfiguration.DEFAULT_PROVIDER_ID,
+                                        )
                                         apiKey = ""
                                     }
                                     status = "Configuração salva neste dispositivo."
@@ -1273,6 +1276,9 @@ private fun SettingsScreen(
                                     if (apiKey.isNotBlank()) {
                                         container.secretStore.saveApiKey(apiKey.trim())
                                         keySaved = true
+                                        container.providerPreferences.clearCooldown(
+                                            ProviderConfiguration.DEFAULT_PROVIDER_ID,
+                                        )
                                         apiKey = ""
                                     }
                                     busy = true
