@@ -131,4 +131,12 @@ Third-party libraries, tools, names, and materials remain governed by their resp
 
 ---
 
-Maintained by [@mauricio-gamedev](https://github.com/mauricio-gamedev). For feature proposals, bug reports, and support requests, use the repository's GitHub Issues templates.
+Maintained by [@mauricio-gamedev](https://github.com/mauricio-gamedev), with project credit to @astromg01.
+
+- [Support](SUPPORT.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contribution Policy](CONTRIBUTING.md)
+- [Copyright Notice](COPYRIGHT.md)
+- [Security Policy](SECURITY.md)
+
+For feature proposals and bug reports, use the repository's GitHub Issues templates.
