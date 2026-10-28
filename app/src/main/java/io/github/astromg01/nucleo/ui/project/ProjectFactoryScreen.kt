@@ -168,7 +168,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 buildStatus = if (selectedBuildRepository == null) {
                     "Sessão GitHub validada como @$login. Ainda falta escolher um repositório privado dedicado ao build."
                 } else {
-                    "Sessão GitHub validada como @$login. Repositório de build selecionado: \${selectedBuildRepository!!.fullName}."
+                    "Sessão GitHub validada como @$login. Repositório de build selecionado: ${selectedBuildRepository!!.fullName}."
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -178,7 +178,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             githubSessionVerified = false
             githubAccountLogin = null
             if (showStatus) {
-                buildStatus = "Existe uma credencial GitHub salva, mas não consegui validar a sessão: \${error.message ?: "erro de autenticação"}. Reautorize somente se a sessão realmente expirou."
+                buildStatus = "Existe uma credencial GitHub salva, mas não consegui validar a sessão: ${error.message ?: "erro de autenticação"}. Reautorize somente se a sessão realmente expirou."
             }
         }
     }
