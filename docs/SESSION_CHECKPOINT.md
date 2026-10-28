@@ -1,9 +1,10 @@
 # Session Checkpoint — Núcleo AI
 
 **Last verified:** 2026-10-28  
-**Current release line:** `0.7.1-alpha` (`versionCode 11`)  
+**Main release line:** `0.7.1-alpha` (`versionCode 11`)  
+**Proposed release in PR #7:** `0.8.0-alpha` (`versionCode 12`)  
 **Default branch:** `main`  
-**Handoff status:** repository documentation consolidated; application branch state is stable; administrative metadata and branch protection remain unfinished.
+**Handoff status:** PR #7 contains chat usability and model-switch cooldown recovery. Android CI passed on app-source SHA `24d0d699db31c08de15fdb5b3ed0f45ba81c4562` (run [#186](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40749643966)); APK artifact ID `12843805758` was uploaded. Merge is blocked: the active `protect main` ruleset restricts updates and has no bypass actor; API merge returned HTTP 405. Repository auto-merge is disabled. Do not claim the PR was merged.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
@@ -19,6 +20,19 @@
 - GitHub Actions run [#166](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40636208614) passed for the current `main` commit, including tests, APK build, artifact/checksum verification, and upload.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
+
+## Latest recovery work — PR #7
+
+- PR: [#7 Improve chat readability and fix model-switch cooldowns](https://github.com/mauricio-gamedev/Project-ia/pull/7).
+- Main remains at `773ee754c88d9555e3f9f63b6527d10ae1c8e2c4`; PR #7 is open and based on that SHA. PR #6 is also open and remains unrelated.
+- The app-source change restores the previously established provider request timeout behavior rather than enforcing the experimental 40-second route cap.
+- `ProviderPreferences.save` now clears the primary cooldown if provider/model/endpoint/enabled state changes. Saving a new primary API key also clears cooldown. Settings adds an explicit `Limpar esperas dos modelos` action for the primary route and configured fallbacks.
+- Chat UI changes include wider assistant messages, compact text/spacing, selectable text, per-message copy, safe Markdown headings/lists/emphasis/code, and persistent OLED Black mode.
+- Added tests for cooldown invalidation and Markdown edge cases (fence length, escaped punctuation, underscore identifiers, and code color contrast).
+- CI run [#186](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40749643966) completed successfully on app-source SHA `24d0d699db31c08de15fdb5b3ed0f45ba81c4562`, including unit tests, APK build, APK-signature/checksum verification, and artifact upload. SHA-256 of APK: `947d0db9428971bf38428317deaa7d063289d7994a5fbe3aee80e4db6896354a`.
+- Artifact download page: https://github.com/mauricio-gamedev/Project-ia/actions/runs/40749643966/artifacts/12843805758
+- The API merge attempt returned HTTP 405, “Cannot update this protected ref.” Active ruleset: `protect main`, ID `26013092`; rules include `update`, deletion, non-fast-forward, empty required-check list, and code-coverage rule with no numeric threshold. `current_user_can_bypass` is `never`. The repository's auto-merge setting is disabled, so the connected integration cannot complete the merge without a ruleset/repository setting change by an authorized administrator.
+- Do not weaken/bypass the ruleset from a tool call merely to force a merge. Keep PR #7 open until an authorized merge path is available.
 
 ## Repository presentation already landed
 
@@ -48,25 +62,23 @@ Suggested topics (use only if the owner approves/current conventions allow): `an
 
 ### 2. Protect `main`
 
-At the last live branch read, `main` was **not protected** (`protected: false`, protection disabled, required checks empty). The integration's GET request for branch protection returned HTTP 403 (`Resource not accessible by integration`), and the repository's rulesets endpoint returned an empty list. No write operation for branch protection/rulesets was exposed by the available GitHub connector.
+Current live state (refreshed 2026-10-28):
+- `main` reports `protected: true`.
+- Active repository ruleset [protect main](https://github.com/mauricio-gamedev/Project-ia/rules/26013092), ID `26013092`, targets `~DEFAULT_BRANCH`.
+- Rules include deletion, non-fast-forward, update restriction, required-status-check rule with an empty checks list, and a code-coverage rule without a numeric threshold.
+- `current_user_can_bypass` is `never` and `bypass_actors` is empty.
+- Branch-protection API read returns HTTP 403 to the connected integration. Attempted merge of PR #7 returned HTTP 405: `Cannot update this protected ref.`
+- Enabling auto-merge through the integration failed because the repository has auto-merge disabled. Do not retry force merges or change the ruleset from an unauthorized path.
 
-The presence of `.github/CODEOWNERS` does not enforce review by itself. Do not call the branch protected until live GitHub metadata confirms the rule.
-
-On resume:
-1. Re-discover current connector actions; check whether an admin-authorized branch-protection/ruleset operation is now available.
-2. If available, create a conservative `main` ruleset/protection policy: block force pushes and deletion; require PRs; require the Android CI check on the latest PR head; require code-owner review only if review workflow and ownership expectations are actually workable for this solo-maintained project.
-3. Be careful not to create a rule that locks the owner out or makes all merges impossible. Since this repository appears to be solo-maintained, do not require approval from another human unless a second reviewer/team exists. A required CI check and PR-only merge policy may be the more workable minimum.
-4. Re-fetch the branch/ruleset endpoint after the attempted change. Report success only if server-side state confirms it.
-5. If no authorized write path exists, keep the limitation explicit and provide the owner with the exact minimum remaining admin step only then.
+The active `update` restriction appears to block this integration's PR merge attempt. Because the user asked for repository safety and the connected identity cannot bypass the ruleset, keep the PR open and report the exact admin/repository-settings blocker. An authorized owner must adjust the ruleset/merge configuration so successful PRs can merge without bypassing the intended protections.
 
 ## Next-action queue
 
-1. **Resume from this checkpoint.** Refresh live `main`, PRs, branch protection, repository About/topics, and Actions state.
-2. Finish repository metadata (description/topics) via an authorized GitHub integration operation if available.
-3. Finish `main` protection via an authorized ruleset/branch-protection operation if available. Server-side verification is mandatory.
-4. If those admin operations remain unavailable, avoid changing unrelated app code merely to work around permissions. Record the actual blocker and leave the documentation/CI state intact.
-5. Once repository settings are handled, ask what next app feature the owner wants to build; do not restart the completed documentation task.
-6. For any new engineering task: branch from fresh `main`, inspect existing code/tests, implement, validate, review, open PR, wait for CI on exact head SHA, merge only after checks pass, and update this checkpoint.
+1. Keep PR #7 open until an authorized merge path is available; its app-source changes and APK passed CI, and the build artifact is available for installation/testing.
+2. If the user installs the 0.8.0-alpha APK, open Settings → AutoRouter → `Limpar esperas dos modelos` to clear stale cooldowns without changing keys or bypassing quota.
+3. Resolve the active `protect main` ruleset / disabled auto-merge setting through an authorized owner/admin path; do not bypass it.
+4. Continue repository metadata (description/topics) only when an authorized metadata write operation is available.
+5. For future work, branch from fresh `main`, inspect source/tests, implement, validate, review, open PR, wait for CI on exact head SHA, merge only after checks pass, and update this checkpoint.
 
 ## Safety and accuracy notes
 
