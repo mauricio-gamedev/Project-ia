@@ -90,7 +90,7 @@ class GitHubConnector(
             validateClientId(clientId)
             val json = JSONObject(postForm(
                 DEVICE_CODE_URL,
-                mapOf("client_id" to clientId.trim(), "scope" to "repo workflow"),
+                mapOf("client_id" to clientId.trim(), "scope" to "repo workflow offline_access"),
             ))
             GitHubDeviceAuthorization(
                 deviceCode = json.optString("device_code").takeIf { it.isNotBlank() }
