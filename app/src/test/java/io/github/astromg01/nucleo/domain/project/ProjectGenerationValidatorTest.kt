@@ -56,7 +56,7 @@ class ProjectGenerationValidatorTest {
     @Test
     fun acceptsValidXmlWithoutRequiringUnsupportedXercesFlags() {
         val issues = ProjectGenerationValidator.validate(
-            genericFile("layout.xml", """<root><item android:enabled="true" /></root>"""),
+            genericFile("layout.xml", """<root xmlns:android="http://schemas.android.com/apk/res/android"><item android:enabled="true" /></root>"""),
         )
 
         assertFalse(issues.any { it.contains("XML") && it.contains("malformado") })
