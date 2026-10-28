@@ -360,31 +360,78 @@ class GitHubConnectorPreferences(context: Context) {
     fun clientId(): String = preferences.getString(KEY_CLIENT_ID, "").orEmpty()
     fun saveClientId(value: String) { preferences.edit().putString(KEY_CLIENT_ID, value.trim()).apply() }
 
-    fun selectedRepository(): GitHubRepository? {
-        val owner = preferences.getString(KEY_OWNER, "").orEmpty()
-        val name = preferences.getString(KEY_REPOSITORY, "").orEmpty()
+    /** Repository whose snippets may be sent to the AI, only when chat context is enabled. */
+    fun selectedRepository(): GitHubRepository? = readRepository(
+        KEY_OWNER, KEY_REPOSITORY, KEY_PRIVATE, KEY_BRANCH, KEY_URL, KEY_DESCRIPTION, KEY_CAN_PUSH,
+    )
+
+    fun saveSelectedRepository(repository: GitHubRepository) = saveRepository(
+        repository, KEY_OWNER, KEY_REPOSITORY, KEY_PRIVATE, KEY_BRANCH, KEY_URL, KEY_DESCRIPTION, KEY_CAN_PUSH,
+    )
+
+    /** Dedicated target for APK builds. Falls back to the chat repository until separately set. */
+    fun selectedBuildRepository(): GitHubRepository? = readRepository(
+        KEY_BUILD_OWNER, KEY_BUILD_REPOSITORY, KEY_BUILD_PRIVATE, KEY_BUILD_BRANCH, KEY_BUILD_URL,
+        KEY_BUILD_DESCRIPTION, KEY_BUILD_CAN_PUSH,
+    ) ?: selectedRepository()
+
+    fun saveSelectedBuildRepository(repository: GitHubRepository) = saveRepository(
+        repository, KEY_BUILD_OWNER, KEY_BUILD_REPOSITORY, KEY_BUILD_PRIVATE, KEY_BUILD_BRANCH,
+        KEY_BUILD_URL, KEY_BUILD_DESCRIPTION, KEY_BUILD_CAN_PUSH,
+    )
+
+    private fun readRepository(
+        ownerKey: String,
+        repositoryKey: String,
+        privateKey: String,
+        branchKey: String,
+        urlKey: String,
+        descriptionKey: String,
+        pushKey: String,
+    ): GitHubRepository? {
+        val owner = preferences.getString(ownerKey, "").orEmpty()
+        val name = preferences.getString(repositoryKey, "").orEmpty()
         if (owner.isBlank() || name.isBlank()) return null
         return GitHubRepository(
-            owner = owner, name = name,
-            isPrivate = preferences.getBoolean(KEY_PRIVATE, false),
-            defaultBranch = preferences.getString(KEY_BRANCH, "").orEmpty(),
-            htmlUrl = preferences.getString(KEY_URL, "https://github.com/$owner/$name").orEmpty(),
-            description = preferences.getString(KEY_DESCRIPTION, "").orEmpty(),
-            canPush = preferences.getBoolean(KEY_CAN_PUSH, false),
+            owner = owner,
+            name = name,
+            isPrivate = preferences.getBoolean(privateKey, false),
+            defaultBranch = preferences.getString(branchKey, "").orEmpty(),
+            htmlUrl = preferences.getString(urlKey, "https://github.com/$owner/$name").orEmpty(),
+            description = preferences.getString(descriptionKey, "").orEmpty(),
+            canPush = preferences.getBoolean(pushKey, false),
         )
     }
 
-    fun saveSelectedRepository(repository: GitHubRepository) {
+    private fun saveRepository(
+        repository: GitHubRepository,
+        ownerKey: String,
+        repositoryKey: String,
+        privateKey: String,
+        branchKey: String,
+        urlKey: String,
+        descriptionKey: String,
+        pushKey: String,
+    ) {
         preferences.edit()
-            .putString(KEY_OWNER, repository.owner).putString(KEY_REPOSITORY, repository.name)
-            .putBoolean(KEY_PRIVATE, repository.isPrivate).putString(KEY_BRANCH, repository.defaultBranch)
-            .putString(KEY_URL, repository.htmlUrl).putString(KEY_DESCRIPTION, repository.description)
-            .putBoolean(KEY_CAN_PUSH, repository.canPush).apply()
+            .putString(ownerKey, repository.owner)
+            .putString(repositoryKey, repository.name)
+            .putBoolean(privateKey, repository.isPrivate)
+            .putString(branchKey, repository.defaultBranch)
+            .putString(urlKey, repository.htmlUrl)
+            .putString(descriptionKey, repository.description)
+            .putBoolean(pushKey, repository.canPush)
+            .apply()
     }
 
     fun clearSelectedRepository() {
-        preferences.edit().remove(KEY_OWNER).remove(KEY_REPOSITORY).remove(KEY_PRIVATE)
-            .remove(KEY_BRANCH).remove(KEY_URL).remove(KEY_DESCRIPTION).remove(KEY_CAN_PUSH).apply()
+        preferences.edit()
+            .remove(KEY_OWNER).remove(KEY_REPOSITORY).remove(KEY_PRIVATE)
+            .remove(KEY_BRANCH).remove(KEY_URL).remove(KEY_DESCRIPTION).remove(KEY_CAN_PUSH)
+            .remove(KEY_BUILD_OWNER).remove(KEY_BUILD_REPOSITORY).remove(KEY_BUILD_PRIVATE)
+            .remove(KEY_BUILD_BRANCH).remove(KEY_BUILD_URL).remove(KEY_BUILD_DESCRIPTION)
+            .remove(KEY_BUILD_CAN_PUSH)
+            .apply()
     }
 
     companion object {
@@ -396,6 +443,13 @@ class GitHubConnectorPreferences(context: Context) {
         private const val KEY_URL = "selected_url"
         private const val KEY_DESCRIPTION = "selected_description"
         private const val KEY_CAN_PUSH = "selected_can_push"
+        private const val KEY_BUILD_OWNER = "build_owner"
+        private const val KEY_BUILD_REPOSITORY = "build_repository"
+        private const val KEY_BUILD_PRIVATE = "build_private"
+        private const val KEY_BUILD_BRANCH = "build_default_branch"
+        private const val KEY_BUILD_URL = "build_url"
+        private const val KEY_BUILD_DESCRIPTION = "build_description"
+        private const val KEY_BUILD_CAN_PUSH = "build_can_push"
     }
 }
 

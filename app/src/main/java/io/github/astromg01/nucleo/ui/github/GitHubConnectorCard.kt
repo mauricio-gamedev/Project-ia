@@ -51,7 +51,9 @@ fun GitHubConnectorCard(container: AppContainer) {
     var connected by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
     var repositories by remember { mutableStateOf<List<GitHubRepository>>(emptyList()) }
     var selected by remember { mutableStateOf(preferences.selectedRepository()) }
-    var menuOpen by remember { mutableStateOf(false) }
+    var selectedBuild by remember { mutableStateOf(preferences.selectedBuildRepository()) }
+    var contextMenuOpen by remember { mutableStateOf(false) }
+    var buildMenuOpen by remember { mutableStateOf(false) }
     var deviceAuthorization by remember { mutableStateOf<GitHubDeviceAuthorization?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -61,6 +63,7 @@ fun GitHubConnectorCard(container: AppContainer) {
             ?: throw java.io.IOException("Conecte sua conta GitHub para carregar os repositórios.")
         repositories = connector.listRepositories(token)
         selected = preferences.selectedRepository()
+        selectedBuild = preferences.selectedBuildRepository()
         status = "Conexão GitHub pronta · ${repositories.size} repositórios carregados."
     }
 
@@ -143,38 +146,22 @@ fun GitHubConnectorCard(container: AppContainer) {
                 }
             } else {
                 Text("Conta GitHub conectada", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Medium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) {
-                        OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(selected?.fullName ?: "Escolher repositório", maxLines = 1)
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            repositories.forEach { repository ->
-                                DropdownMenuItem(
-                                    text = { Text("${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"}") },
-                                    onClick = {
-                                        preferences.saveSelectedRepository(repository)
-                                        selected = repository
-                                        menuOpen = false
-                                        status = "Repositório ativo: ${repository.fullName}."
-                                    },
-                                )
-                            }
-                        }
+                Text("Repositório de contexto do chat", style = MaterialTheme.typography.labelLarge)
+                OutlinedButton(onClick = { contextMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(selected?.fullName ?: "Escolher repositório para o chat", maxLines = 1)
+                }
+                DropdownMenu(expanded = contextMenuOpen, onDismissRequest = { contextMenuOpen = false }) {
+                    repositories.forEach { repository ->
+                        DropdownMenuItem(
+                            text = { Text("${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"}") },
+                            onClick = {
+                                preferences.saveSelectedRepository(repository)
+                                selected = repository
+                                contextMenuOpen = false
+                                status = "Repositório de contexto do chat: ${repository.fullName}."
+                            },
+                        )
                     }
-                    OutlinedButton(enabled = !busy, onClick = {
-                        val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID)
-                        if (token.isNullOrBlank()) connected = false else {
-                            busy = true
-                            scope.launch {
-                                try { refresh() } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (error: Exception) {
-                                    status = error.message ?: "Não foi possível atualizar a lista."
-                                } finally { busy = false }
-                            }
-                        }
-                    }) { Text("Atualizar") }
                 }
                 selected?.let { repository ->
                     Text(
@@ -183,8 +170,44 @@ fun GitHubConnectorCard(container: AppContainer) {
                     )
                     TextButton(onClick = {
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(repository.htmlUrl))) }
-                    }) { Text("Abrir repositório") }
+                    }) { Text("Abrir repositório de contexto") }
                 }
+                Text("Repositório dedicado à compilação de APK", style = MaterialTheme.typography.labelLarge)
+                OutlinedButton(onClick = { buildMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(selectedBuild?.fullName ?: "Escolher repositório privado de build", maxLines = 1)
+                }
+                DropdownMenu(expanded = buildMenuOpen, onDismissRequest = { buildMenuOpen = false }) {
+                    repositories.forEach { repository ->
+                        DropdownMenuItem(
+                            text = { Text("${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"} · ${if (repository.canPush) "escrita" else "somente leitura"}") },
+                            onClick = {
+                                preferences.saveSelectedBuildRepository(repository)
+                                selectedBuild = repository
+                                buildMenuOpen = false
+                                status = "Repositório de build selecionado: ${repository.fullName}. O build remoto vai validar privacidade e permissões antes de escrever."
+                            },
+                        )
+                    }
+                }
+                selectedBuild?.let { repository ->
+                    Text(
+                        "${if (repository.isPrivate) "Privado" else "Público"} · branch ${repository.defaultBranch.ifBlank { "não definida" }} · ${if (repository.canPush) "escrita disponível" else "somente leitura detectada"}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                OutlinedButton(enabled = !busy, onClick = {
+                    val token = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID)
+                    if (token.isNullOrBlank()) connected = false else {
+                        busy = true
+                        scope.launch {
+                            try { refresh() } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                status = error.message ?: "Não foi possível atualizar a lista."
+                            } finally { busy = false }
+                        }
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar lista de repositórios") }
                 TextButton(enabled = !busy, onClick = {
                     session.disconnect()
                     connected = false
@@ -194,7 +217,7 @@ fun GitHubConnectorCard(container: AppContainer) {
                 }) { Text("Desconectar neste dispositivo") }
             }
             Text(
-                "A autorização solicita os escopos repo e workflow, que são amplos. O app usa apenas o repositório selecionado; o código só é enviado ao provedor de IA se você habilitar o contexto do GitHub no chat. O build exige consentimento separado.",
+                "A autorização solicita os escopos repo e workflow, que são amplos. As seleções de contexto do chat e de build são separadas. O código só é enviado ao provedor de IA se você habilitar o contexto no chat; o build exige consentimento separado.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (status.isNotBlank()) Text(

@@ -103,7 +103,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
     val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
     val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
-    var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedRepository()) }
+    var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedBuildRepository()) }
     var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
 
     var projectName by remember { mutableStateOf("Meu projeto") }
@@ -555,18 +555,18 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Compilação de APK na nuvem", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "O Núcleo usa sua conexão GitHub autorizada. Escolha o repositório uma única vez em Configurações → Conector GitHub; não precisa colar usuário, nome ou token em cada projeto.",
+                        "O Núcleo usa sua conta GitHub autorizada. Escolha um repositório privado dedicado ao build em Configurações → Conector GitHub. Essa seleção é separada do repositório que o chat lê como contexto.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     selectedBuildRepository?.let { repository ->
                         Text(
-                            "Repositório ativo: ${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"} · branch ${repository.defaultBranch.ifBlank { "não definida" }}",
+                            "Repositório de build ativo: ${repository.fullName} · ${if (repository.isPrivate) "privado" else "público"} · branch ${repository.defaultBranch.ifBlank { "não definida" }}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.secondary,
                         )
                     } ?: Text(
-                        "Nenhum repositório selecionado. Abra o Conector GitHub nas Configurações.",
+                        "Nenhum repositório de build selecionado. Abra o Conector GitHub nas Configurações.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -577,14 +577,14 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedButton(onClick = onOpenGitHubSettings, enabled = !buildingApk && !verifyingBuildTarget, modifier = Modifier.fillMaxWidth()) {
-                        Text("Conectar GitHub / escolher repositório")
+                        Text("Conectar GitHub / escolher repositório de build")
                     }
                     OutlinedButton(
                         onClick = {
-                            selectedBuildRepository = githubConnectorPreferences.selectedRepository()
+                            selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
                             githubBuildTokenAvailable = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
                             buildStatus = if (selectedBuildRepository == null) {
-                                "Nenhum repositório selecionado no Conector GitHub."
+                                "Nenhum repositório de build selecionado no Conector GitHub."
                             } else if (!githubBuildTokenAvailable) {
                                 "Conecte sua conta GitHub antes de verificar o repositório."
                             } else {
@@ -593,13 +593,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         },
                         enabled = !buildingApk && !verifyingBuildTarget,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Atualizar conexão selecionada") }
+                    ) { Text("Atualizar repositório de build selecionado") }
                     Button(
                         onClick = {
-                            val repository = githubConnectorPreferences.selectedRepository()
+                            val repository = githubConnectorPreferences.selectedBuildRepository()
                             val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
                             if (repository == null) {
-                                buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
+                                buildStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
                             } else if (!hasStoredToken) {
                                 githubBuildTokenAvailable = false
                                 buildStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
@@ -607,14 +607,14 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 Unit
                             } else {
                                 verifyingBuildTarget = true
-                                buildStatus = "Validando acesso e privacidade do repositório selecionado…"
+                                buildStatus = "Validando acesso e privacidade do repositório de build…"
                                 scope.launch {
                                     try {
                                         val token = githubOAuthSession.validAccessToken()
                                             ?: throw java.io.IOException("Reconecte sua conta GitHub.")
                                         val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
                                         selectedBuildRepository = repository
-                                        buildStatus = "Repositório privado confirmado: ${target.owner}/${target.name}."
+                                        buildStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (error: Exception) {
@@ -672,7 +672,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         Button(
                             onClick = {
                                 val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
-                                val repository = githubConnectorPreferences.selectedRepository()
+                                val repository = githubConnectorPreferences.selectedBuildRepository()
                                 when {
                                     !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
                                     repository == null -> buildStatus = "Escolha um repositório no Conector GitHub em Configurações."

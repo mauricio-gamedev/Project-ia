@@ -11,7 +11,7 @@ Ter arquivos Kotlin, um Manifest ou uma build.gradle não comprova que há APK. 
 1. Crie um repositório privado dedicado aos builds, inicializado com README e uma branch padrão.
 2. Configure o Conector GitHub em **Configurações → Conector GitHub**. O Núcleo usa OAuth Device Flow: registre um OAuth App na sua conta GitHub, habilite **Device Flow** e informe o Client ID público no app. Não informe senha da conta nem cole um PAT.
 3. Toque em **Conectar GitHub**, abra a página oficial do GitHub e autorize o aplicativo com o código mostrado.
-4. Selecione seu repositório privado dedicado ao build e mantenha-o como repositório escolhido. A mesma seleção é compartilhada entre Configurações, o contexto opcional do chat e a Project Factory.
+4. Em Configurações → Conector GitHub, escolha o **repositório privado de build** separadamente do repositório que o chat usa para contexto. Recomendamos um repositório dedicado para que o workflow e os ZIPs de build não sejam escritos no seu projeto principal.
 5. Na Project Factory, gere e revise o projeto Android, marque o consentimento de build remoto e toque em **Compilar APK na nuvem**.
 
 Detalhes do OAuth e escopos: [GITHUB_CONNECTOR.md](GITHUB_CONNECTOR.md). A autorização atual usa os escopos OAuth `repo`, `workflow` e `offline_access`; eles são amplos. Revise cuidadosamente a tela de autorização. Para distribuição do app a mais usuários, prefira evoluir para um GitHub App com permissões granulares e instalação limitada aos repositórios desejados.
