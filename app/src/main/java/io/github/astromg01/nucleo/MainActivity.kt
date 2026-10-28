@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
@@ -31,11 +30,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Home
@@ -64,6 +65,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -85,6 +87,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
@@ -97,6 +100,7 @@ import io.github.astromg01.nucleo.data.settings.ProviderConfiguration
 import io.github.astromg01.nucleo.data.settings.OpenRouterCatalogModel
 import io.github.astromg01.nucleo.data.settings.OpenRouterModelCatalog
 import io.github.astromg01.nucleo.ui.NucleoTheme
+import io.github.astromg01.nucleo.ui.chat.formatChatMarkdown
 import io.github.astromg01.nucleo.ui.lang.LangPlaygroundScreen
 import io.github.astromg01.nucleo.ui.project.ProjectFactoryScreen
 import io.github.astromg01.nucleo.ui.github.GitHubConnectorCard
@@ -119,13 +123,34 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val container = (application as NucleoApplication).container
-        setContent { NucleoTheme { NucleoShell(container) } }
+        setContent {
+            val themePreferences = remember {
+                getSharedPreferences("nucleo_ui_preferences", android.content.Context.MODE_PRIVATE)
+            }
+            var oledBlack by rememberSaveable {
+                mutableStateOf(themePreferences.getBoolean("oled_black_enabled", false))
+            }
+            NucleoTheme(oledBlack = oledBlack) {
+                NucleoShell(
+                    container = container,
+                    oledBlack = oledBlack,
+                    onOledBlackChange = { enabled ->
+                        oledBlack = enabled
+                        themePreferences.edit().putBoolean("oled_black_enabled", enabled).apply()
+                    },
+                )
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NucleoShell(container: AppContainer) {
+private fun NucleoShell(
+    container: AppContainer,
+    oledBlack: Boolean,
+    onOledBlackChange: (Boolean) -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
@@ -305,7 +330,7 @@ private fun NucleoShell(container: AppContainer) {
                         )
                     }
                 })
-                AppScreen.SETTINGS -> SettingsScreen(container)
+                AppScreen.SETTINGS -> SettingsScreen(container, oledBlack, onOledBlackChange)
                 AppScreen.LANG -> LangPlaygroundScreen()
                 AppScreen.FACTORY -> ProjectFactoryScreen(container, onOpenGitHubSettings = { screen = AppScreen.SETTINGS })
             }
@@ -669,10 +694,12 @@ private fun ChatScreen(
     Column(Modifier.fillMaxSize().imePadding()) {
         Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
             Text(
-                "Chat com histórico, resumo e memória local. Para guardar algo, diga “Lembre que…”. O código do GitHub só é enviado à IA quando você ativa explicitamente essa opção.",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodySmall,
+                "Histórico e memória local ativos · GitHub só com consentimento",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Row(
@@ -770,7 +797,7 @@ private fun ChatScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 state = listState,
             ) {
@@ -797,6 +824,7 @@ private fun ChatScreen(
 }
 @Composable
 private fun MessageBubble(message: ChatMessageEntity) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isUser = message.role == "user"
     val isError = message.role == "assistant_error"
     Row(
@@ -804,30 +832,68 @@ private fun MessageBubble(message: ChatMessageEntity) {
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            modifier = Modifier.widthIn(max = 340.dp),
-            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth(if (isUser) 0.90f else 1f),
+            shape = RoundedCornerShape(16.dp),
             color = when {
                 isUser -> MaterialTheme.colorScheme.primaryContainer
                 isError -> MaterialTheme.colorScheme.errorContainer
                 else -> MaterialTheme.colorScheme.surfaceVariant
             },
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    when {
-                        isUser -> "Você"
-                        isError -> "Aviso"
-                        else -> message.provider ?: "Núcleo AI"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(message.content, style = MaterialTheme.typography.bodyMedium)
+            Column(
+                Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        when {
+                            isUser -> "Você"
+                            isError -> "Aviso"
+                            else -> message.provider ?: "Núcleo AI"
+                        },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(
+                                android.content.ClipData.newPlainText("Mensagem Núcleo AI", message.content),
+                            )
+                            Toast.makeText(context, "Mensagem copiada", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.ContentCopy,
+                            contentDescription = "Copiar mensagem",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                SelectionContainer {
+                    Text(
+                        text = formatChatMarkdown(message.content),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            letterSpacing = 0.05.sp,
+                        ),
+                    )
+                }
             }
         }
     }
 }
-
 @Composable
 private fun ProjectsScreen(projects: List<ProjectEntity>, onAdd: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1044,7 +1110,11 @@ private fun NewMemoryDialog(onDismiss: () -> Unit, onSave: (String, String) -> U
 }
 
 @Composable
-private fun SettingsScreen(container: AppContainer) {
+private fun SettingsScreen(
+    container: AppContainer,
+    oledBlack: Boolean,
+    onOledBlackChange: (Boolean) -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var savedConfig by remember { mutableStateOf(container.providerPreferences.load()) }
@@ -1101,6 +1171,25 @@ private fun SettingsScreen(container: AppContainer) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Tema OLED Black", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Fundo preto puro, com texto e destaques de alto contraste.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = oledBlack, onCheckedChange = onOledBlackChange)
+                    }
+                }
+            }
             item {
                 Text("Configurações", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text("Conecta um serviço compatível com a API de chat-completions. A chave fica cifrada com Android Keystore.", color = MaterialTheme.colorScheme.onSurfaceVariant)
