@@ -39,7 +39,7 @@ class ProjectGenerationValidatorTest {
 
     @Test
     fun rejectsMalformedJson() {
-        val issues = ProjectGenerationValidator.validate(genericFile("config.json", """{"items":[1, 2,]}"""))
+        val issues = ProjectGenerationValidator.validate(genericFile("config.json", """{"items":[1, 2]"""))
 
         assertTrue(issues.any { it.contains("JSON válido") })
     }
