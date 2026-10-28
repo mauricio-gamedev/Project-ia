@@ -383,6 +383,10 @@ class ProjectFactory {
                 continue
             }
 
+            if (file.content.isBlank()) {
+                problems += "O arquivo '${file.path}' veio vazio e precisa de conteúdo completo."
+                continue
+            }
             val bytes = file.content.toByteArray(Charsets.UTF_8)
             if (bytes.size > MAX_FILE_BYTES) {
                 problems += "O arquivo '${file.path}' excede o limite de $MAX_FILE_BYTES bytes."
