@@ -6,7 +6,7 @@ The Android CI workflow at the repository's Android CI workflow file is the auth
 
 ## What CI checks
 
-The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact, calculates its checksum, and uploads the APK as a workflow artifact.
+The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact and signing, calculates its checksum, and uploads the APK as a workflow artifact. The run summary uses `printf` so shell does not interpret the displayed commit and APK hash as commands.
 
 Expected local output after a successful build:
 

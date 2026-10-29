@@ -18,6 +18,7 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 - Synchronize selected common Android imports with Gradle declarations for Navigation Compose, Lifecycle, Coroutines, and OkHttp while preserving valid custom build scripts.
 - Reject AI review reports whose findings all point outside the authorized staging snapshot.
 - Bump to versionCode 15; application ID and stable signing remain unchanged.
+- Fix the Android CI summary so commit and APK SHA-256 values are printed literally rather than interpreted as shell commands.
 
 ## 0.8.2-alpha — 2026-10-28
 
