@@ -9,10 +9,10 @@
 - Active PR: [#8 — Stabilize Project Factory, AI review, provider routing, and chat](https://github.com/mauricio-gamedev/Project-ia/pull/8)
 - Default branch: `main`; keep it untouched.
 - Last verified `main` SHA: `773ee754c88d9555e3f9f63b6527d10ae1c8e2c4`
-- Last verified PR head: `bbc6ce9e98aba7259e35da21b892cc2ba7a2333e`
-- Last complete CI on that head: [run #40791650177](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791650177), successful.
+- Last fully validated candidate commit: `5f5f05b68fad5f9ab43147dd5fe4dcf491eb7cb4` (a later checkpoint-only commit may advance the branch without changing app/workflow sources).
+- Last complete CI on that tested candidate: [run #40792610317](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40792610317), successful.
 - Candidate: `0.8.3-alpha`, `versionCode 15`, application ID `io.github.astromg01.nucleo`.
-- Verified artifact: `nucleo-ai-debug-apk`, artifact ID `12862505116`; APK SHA-256 `1490758cd2ada09dea77cf41407bf77fab7bdfa6e382269160f63b1d88a99eba`. The configured stable signing certificate was verified. Artifact archive digest: `sha256:6ff616428e590e331f637531f88eb741631be05808d2eb4716eb7ce0f53eb872`; it expires 2026-11-12 UTC.
+- Verified artifact: `nucleo-ai-debug-apk`, artifact ID `12862402251`; APK SHA-256 `1490758cd2ada09dea77cf41407bf77fab7bdfa6e382269160f63b1d88a99eba`. The configured stable signing certificate was verified. Artifact archive digest: `sha256:c9c3564545bfeee4b66274a2483d70d1bc8d44296a8dc021c05d938dc269de72`; it expires 2026-11-12 UTC.
 - Refresh these values from GitHub before acting. If the branch head or run changed, the live values win.
 
 ## 2. Start with the owner's test report
