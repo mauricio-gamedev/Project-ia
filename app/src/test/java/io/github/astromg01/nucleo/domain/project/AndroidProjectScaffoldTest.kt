@@ -53,6 +53,86 @@ class AndroidProjectScaffoldTest {
     }
 
     @Test
+    fun addsKnownDependenciesRequiredByGeneratedImportsWithoutReplacingTheBuildScript() {
+        val appBuild = """
+            plugins {
+                id("com.android.application")
+                id("org.jetbrains.kotlin.android")
+                id("org.jetbrains.kotlin.plugin.compose")
+            }
+            android {
+                namespace = "com.example.navigation"
+                compileSdk = 36
+                defaultConfig {
+                    applicationId = "com.example.navigation"
+                    minSdk = 26
+                    targetSdk = 36
+                }
+                buildFeatures { compose = true }
+            }
+            dependencies {
+                implementation("androidx.core:core-ktx:1.17.0")
+            }
+        """.trimIndent()
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Navigation Demo",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile("settings.gradle.kts", """
+                        pluginManagement {
+                            repositories { google(); mavenCentral(); gradlePluginPortal() }
+                        }
+                        dependencyResolutionManagement {
+                            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+                            repositories { google(); mavenCentral() }
+                        }
+                        rootProject.name = "Navigation Demo"
+                        include(":app")
+                    """.trimIndent()),
+                    GeneratedProjectFile("build.gradle.kts", """
+                        plugins {
+                            id("com.android.application") version "8.13.2" apply false
+                            id("org.jetbrains.kotlin.android") version "2.3.21" apply false
+                            id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+                        }
+                    """.trimIndent()),
+                    GeneratedProjectFile("app/build.gradle.kts", appBuild),
+                    GeneratedProjectFile("app/src/main/java/com/example/navigation/MainActivity.kt", """
+                        package com.example.navigation
+                        import androidx.activity.ComponentActivity
+                        import androidx.navigation.compose.NavHost
+                        import androidx.lifecycle.viewmodel.compose.viewModel
+                        class MainActivity : ComponentActivity()
+                    """.trimIndent()),
+                    GeneratedProjectFile("app/src/main/AndroidManifest.xml", """
+                        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                          <application android:label="Navigation">
+                            <activity android:name="com.example.navigation.MainActivity" android:exported="true">
+                              <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+                                <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                            </activity>
+                          </application>
+                        </manifest>
+                    """.trimIndent()),
+                ),
+            ),
+        )
+        val updatedBuild = result.draft.files.first { it.path == "app/build.gradle.kts" }.content
+
+        assertTrue(updatedBuild.contains("androidx.navigation:navigation-compose:2.10.2"))
+        assertTrue(updatedBuild.contains("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4"))
+        assertTrue(updatedBuild.contains("androidx.core:core-ktx:1.17.0"))
+        assertTrue(result.replacedPaths.contains("app/build.gradle.kts"))
+        assertEquals(
+            1,
+            "androidx.navigation:navigation-compose:2.10.2".toRegex().findAll(updatedBuild).count(),
+        )
+    }
+
+    @Test
     fun preservesAValidGeneratedActivityAndUsesItAsTheLauncher() {
         val activity = """
             package com.example.todo
@@ -229,6 +309,125 @@ class AndroidProjectScaffoldTest {
         assertFalse(paths.contains("build.gradle.kts"))
         assertFalse(paths.contains("app/build.gradle.kts"))
         assertFalse(result.defaultLauncherAdded)
+    }
+
+    @Test
+    fun acceptsValidKotlinGradleFilesWithoutAddingCompetingGroovyDslFiles() {
+        val rootBuild = """
+            plugins {
+                id("com.android.application") version "8.13.2" apply false
+                id("org.jetbrains.kotlin.android") version "2.3.21" apply false
+                id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+            }
+        """.trimIndent()
+        val appBuild = """
+            plugins {
+                id("com.android.application")
+                id("org.jetbrains.kotlin.android")
+                id("org.jetbrains.kotlin.plugin.compose")
+            }
+            android {
+                namespace = "com.example.kotlin"
+                compileSdk = 36
+                defaultConfig {
+                    applicationId = "com.example.kotlin"
+                    minSdk = 26
+                    targetSdk = 36
+                }
+            }
+            dependencies {
+                implementation("androidx.core:core-ktx:1.17.0")
+            }
+        """.trimIndent()
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Kotlin Project",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile("settings.gradle.kts", """
+                        pluginManagement {
+                            repositories {
+                                google()
+                                mavenCentral()
+                                gradlePluginPortal()
+                            }
+                        }
+                        rootProject.name = "Kotlin Project"
+                        include(":app")
+                    """.trimIndent()),
+                    GeneratedProjectFile("build.gradle.kts", rootBuild),
+                    GeneratedProjectFile("app/build.gradle.kts", appBuild),
+                    GeneratedProjectFile("app/src/main/AndroidManifest.xml", """
+                        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                          <application android:label="Kotlin" android:allowBackup="false">
+                            <activity android:name="com.example.kotlin.MainActivity" android:exported="true">
+                              <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+                                <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                            </activity>
+                          </application>
+                        </manifest>
+                    """.trimIndent()),
+                    GeneratedProjectFile(
+                        "app/src/main/java/com/example/kotlin/MainActivity.kt",
+                        "package com.example.kotlin\nclass MainActivity : ComponentActivity() {}",
+                    ),
+                ),
+            ),
+        )
+        val files = result.draft.files.associateBy { it.path }
+
+        assertEquals(rootBuild, files["build.gradle.kts"]?.content)
+        assertEquals(appBuild, files["app/build.gradle.kts"]?.content)
+        assertFalse(result.replacedPaths.contains("build.gradle.kts"))
+        assertFalse(result.replacedPaths.contains("app/build.gradle.kts"))
+        assertFalse(files.containsKey("build.gradle"))
+        assertFalse(files.containsKey("app/build.gradle"))
+        assertFalse(result.defaultLauncherAdded)
+    }
+
+    @Test
+    fun manifestLauncherIsRepairedToMatchTheActualActivityClass() {
+        val draft = ProjectDraft(
+            name = "Manifest mismatch",
+            profile = ProjectProfile.ANDROID_APP,
+            description = "A simple screen.",
+            files = listOf(
+                GeneratedProjectFile(
+                    "app/src/main/java/example/MainActivity.kt",
+                    """
+                        package example
+                        import androidx.activity.ComponentActivity
+                        class MainActivity : ComponentActivity() {}
+                    """.trimIndent(),
+                ),
+                GeneratedProjectFile(
+                    "app/src/main/AndroidManifest.xml",
+                    """
+                        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+                          <application android:label="Mismatch">
+                            <activity android:name="example.MissingActivity" android:exported="true">
+                              <intent-filter>
+                                <action android:name="android.intent.action.MAIN" />
+                                <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                            </activity>
+                          </application>
+                        </manifest>
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val result = AndroidProjectScaffold.complete(draft)
+        val manifest = result.draft.files.first { it.path == "app/src/main/AndroidManifest.xml" }.content
+
+        assertTrue(manifest.contains("android:name=\"example.MainActivity\""))
+        assertFalse(manifest.contains("android:name=\"example.MissingActivity\""))
+        assertTrue(ProjectGenerationValidator.validate(result.draft).none {
+            it.contains("não foi encontrada uma Activity compatível")
+        })
     }
 
     @Test

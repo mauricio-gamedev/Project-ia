@@ -17,6 +17,46 @@ object AndroidProjectScaffold {
     private const val MAIN_ACTIVITY_PATH = "app/src/main/java/io/github/nucleo/generated/NucleoLauncherActivity.kt"
     private const val MANIFEST_PATH = "app/src/main/AndroidManifest.xml"
 
+    private data class ImportDependency(
+        val importPrefix: String,
+        val module: String,
+        val ktsDeclaration: String,
+        val groovyDeclaration: String,
+    )
+
+    private val KNOWN_IMPORT_DEPENDENCIES = listOf(
+        ImportDependency(
+            importPrefix = "androidx.navigation.compose",
+            module = "androidx.navigation:navigation-compose",
+            ktsDeclaration = """implementation("androidx.navigation:navigation-compose:2.10.2")""",
+            groovyDeclaration = """implementation 'androidx.navigation:navigation-compose:2.10.2'""",
+        ),
+        ImportDependency(
+            importPrefix = "androidx.lifecycle.viewmodel.compose",
+            module = "androidx.lifecycle:lifecycle-viewmodel-compose",
+            ktsDeclaration = """implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")""",
+            groovyDeclaration = """implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4'""",
+        ),
+        ImportDependency(
+            importPrefix = "androidx.lifecycle.compose",
+            module = "androidx.lifecycle:lifecycle-runtime-compose",
+            ktsDeclaration = """implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")""",
+            groovyDeclaration = """implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.9.4'""",
+        ),
+        ImportDependency(
+            importPrefix = "kotlinx.coroutines",
+            module = "org.jetbrains.kotlinx:kotlinx-coroutines-android",
+            ktsDeclaration = """implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")""",
+            groovyDeclaration = """implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'""",
+        ),
+        ImportDependency(
+            importPrefix = "okhttp3",
+            module = "com.squareup.okhttp3:okhttp",
+            ktsDeclaration = """implementation("com.squareup.okhttp3:okhttp:4.12.0")""",
+            groovyDeclaration = """implementation 'com.squareup.okhttp3:okhttp:4.12.0'""",
+        ),
+    )
+
     fun complete(draft: ProjectDraft): AndroidScaffoldResult {
         if (draft.profile != ProjectProfile.ANDROID_APP) {
             return AndroidScaffoldResult(draft, emptyList(), emptyList(), false)
@@ -91,13 +131,15 @@ object AndroidProjectScaffold {
             { isUsableAppBuild(it) },
             { dependencies -> appBuildTemplate(slug, dependencies) },
         )
+        synchronizeKnownDependencies(files, replaced)
 
         set(
             "gradle/wrapper/gradle-wrapper.properties",
             "distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-bin.zip\ndistributionSha256Sum=20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n",
         )
 
-        val launcher = findLauncher(files)
+        val manifest = existing(MANIFEST_PATH)
+        val launcher = findLauncher(files, manifest?.content)
         val defaultLauncherAdded = launcher == null
         val launcherClass = launcher ?: run {
             files += GeneratedProjectFile(
@@ -108,7 +150,6 @@ object AndroidProjectScaffold {
             "io.github.nucleo.generated.NucleoLauncherActivity"
         }
 
-        val manifest = existing(MANIFEST_PATH)
         if (manifest == null) {
             set(MANIFEST_PATH, manifestTemplate(projectTitle, launcherClass, emptyList()))
         } else {
@@ -165,36 +206,49 @@ object AndroidProjectScaffold {
 
     private fun isUsableSettings(content: String): Boolean =
         content.contains("pluginManagement") &&
+            content.contains("repositories") &&
             content.contains("google()") &&
+            content.contains("mavenCentral()") &&
             content.contains("gradlePluginPortal()") &&
             content.contains("include") &&
             (content.contains(":app") || content.contains("'app'"))
 
     private fun isUsableRootBuild(content: String): Boolean =
-        content.contains("com.android.application") &&
+        Regex("""(?s)\bplugins\s*\{.*\}""").containsMatchIn(content) &&
+            content.contains("com.android.application") &&
             content.contains("8.13.2") &&
             content.contains("org.jetbrains.kotlin.android") &&
+            content.contains("2.3.21") &&
             content.contains("org.jetbrains.kotlin.plugin.compose")
 
     private fun isUsableAppBuild(content: String): Boolean =
-        content.contains("com.android.application") &&
-            content.contains("android {") &&
+        Regex("""(?s)\bplugins\s*\{.*\}""").containsMatchIn(content) &&
+            content.contains("com.android.application") &&
+            content.contains("org.jetbrains.kotlin.android") &&
+            content.contains("org.jetbrains.kotlin.plugin.compose") &&
+            Regex("""(?s)\bandroid\s*\{.*\}""").containsMatchIn(content) &&
             content.contains("namespace") &&
-            content.contains("compileSdk") &&
+            Regex("""\bcompileSdk\b""").containsMatchIn(content) &&
             content.contains("applicationId") &&
-            content.contains("minSdk") &&
-            content.contains("targetSdk") &&
-            content.contains("dependencies {")
+            Regex("""\bminSdk\b""").containsMatchIn(content) &&
+            Regex("""\btargetSdk\b""").containsMatchIn(content) &&
+            Regex("""(?s)\bdependencies\s*\{.*\}""").containsMatchIn(content)
 
     private fun isUsableManifest(content: String): Boolean =
         content.contains("<manifest") &&
+            content.contains("</manifest", ignoreCase = true) &&
             content.contains("<application") &&
+            content.contains("</application", ignoreCase = true) &&
             content.contains("<activity") &&
             content.contains("android.intent.action.MAIN") &&
             content.contains("android.intent.category.LAUNCHER") &&
+            Regex("""android:name\s*=\s*["'][^"']+["']""").containsMatchIn(content) &&
             Regex("""android:exported\s*=\s*["']true["']""").containsMatchIn(content)
 
-    private fun findLauncher(files: List<GeneratedProjectFile>): String? {
+    private fun findLauncher(
+        files: List<GeneratedProjectFile>,
+        manifestContent: String? = null,
+    ): String? {
         val kotlinPackage = Regex("""(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)""")
         val kotlinActivity = Regex(
             """\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\([^)]*\))?\s*:\s*(?:androidx\.activity\.ComponentActivity|androidx\.appcompat\.app\.AppCompatActivity|android\.app\.Activity|ComponentActivity|AppCompatActivity|Activity)\s*\(""",
@@ -203,16 +257,39 @@ object AndroidProjectScaffold {
         val javaActivity = Regex(
             """\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\s+extends\s+(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Activity|AppCompatActivity|ComponentActivity)\b""",
         )
+
+        val manifestPackage = Regex("""(?is)<manifest\b[^>]*\bpackage\s*=\s*["']([^"']+)["']""")
+            .find(manifestContent.orEmpty())?.groupValues?.get(1).orEmpty()
+        val declaredLauncher = manifestContent?.let { manifest ->
+            Regex("""(?is)<activity\b[^>]*>.*?</activity\s*>""")
+                .findAll(manifest)
+                .firstOrNull { block ->
+                    block.value.contains("android.intent.action.MAIN") &&
+                        block.value.contains("android.intent.category.LAUNCHER")
+                }?.value
+        }?.let { block ->
+            Regex("""(?is)android:name\s*=\s*["']([^"']+)["']""")
+                .find(block.substringBefore(">"))?.groupValues?.get(1)
+        }?.let { declared ->
+            when {
+                declared.startsWith(".") && manifestPackage.isNotBlank() -> manifestPackage + declared
+                '.' !in declared && manifestPackage.isNotBlank() -> "$manifestPackage.$declared"
+                else -> declared
+            }
+        }
+
+        val discovered = mutableListOf<String>()
         for (file in files) {
             val lower = file.path.lowercase(Locale.ROOT)
             if (!(lower.startsWith("app/src/main/") && (lower.endsWith(".kt") || lower.endsWith(".java")))) continue
             val packageMatch = if (lower.endsWith(".kt")) kotlinPackage.find(file.content) else javaPackage.find(file.content)
             val classMatch = if (lower.endsWith(".kt")) kotlinActivity.find(file.content) else javaActivity.find(file.content)
             if (packageMatch != null && classMatch != null) {
-                return "${packageMatch.groupValues[1]}.${classMatch.groupValues[1]}"
+                val qualifiedName = "${packageMatch.groupValues[1]}.${classMatch.groupValues[1]}"
+                if (qualifiedName !in discovered) discovered += qualifiedName
             }
         }
-        return null
+        return declaredLauncher?.takeIf { it in discovered } ?: discovered.firstOrNull()
     }
 
     private fun extractLiteralDependencies(buildFile: String): List<String> {
@@ -261,6 +338,52 @@ object AndroidProjectScaffold {
             id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
         }
     """.trimIndent() + "\n"
+
+    /**
+     * Keeps common generated-source imports and Gradle declarations in sync without replacing
+     * a valid custom build file. Unknown libraries remain visible to preflight/build diagnostics.
+     */
+    private fun synchronizeKnownDependencies(
+        files: MutableList<GeneratedProjectFile>,
+        replaced: MutableList<String>,
+    ) {
+        val source = files.filter { file ->
+            val path = file.path.lowercase(Locale.ROOT)
+            path.startsWith("app/src/main/") && (path.endsWith(".kt") || path.endsWith(".java"))
+        }.joinToString("\n") { it.content }
+        if (source.isBlank()) return
+
+        val buildIndex = files.indexOfFirst {
+            it.path.equals("app/build.gradle.kts", ignoreCase = true) ||
+                it.path.equals("app/build.gradle", ignoreCase = true)
+        }
+        if (buildIndex < 0) return
+        val buildFile = files[buildIndex]
+        val isKotlinDsl = buildFile.path.endsWith(".kts", ignoreCase = true)
+        val required = KNOWN_IMPORT_DEPENDENCIES.filter { dependency ->
+            val importPattern = Regex(
+                "(?m)^\\s*import\\s+" +
+                    Regex.escape(dependency.importPrefix) + "(?:\\.|\\s)",
+            )
+            importPattern.containsMatchIn(source) && !buildFile.content.contains(dependency.module)
+        }
+        if (required.isEmpty()) return
+
+        val dependenciesBlock = Regex("""(?s)(\bdependencies\s*\{)(.*?)(\n\s*\})""")
+        val match = dependenciesBlock.find(buildFile.content) ?: return
+        val declarations = required.joinToString("\n") { dependency ->
+            "    " + if (isKotlinDsl) dependency.ktsDeclaration else dependency.groovyDeclaration
+        }
+        val updatedBlock = match.groupValues[1] +
+            match.groupValues[2].trimEnd() +
+            "\n" + declarations +
+            match.groupValues[3]
+        val updatedContent = buildFile.content.replaceRange(match.range, updatedBlock)
+        if (updatedContent != buildFile.content) {
+            files[buildIndex] = GeneratedProjectFile(buildFile.path, updatedContent)
+            if (buildFile.path !in replaced) replaced += buildFile.path
+        }
+    }
 
     private fun appBuildTemplate(slug: String, retainedDependencies: List<String>): String {
         val dependencies = linkedSetOf(
@@ -366,12 +489,18 @@ object AndroidProjectScaffold {
 
         val openingEnd = target.value.indexOf('>')
         if (openingEnd < 0) return manifestTemplate(name, activityName, extractPermissions(source))
-        val opening = target.value.substring(0, openingEnd + 1)
-        val exportedRegex = Regex("""(?is)android:exported\s*=\s*["'][^"']*["']""")
-        val fixedOpening = if (exportedRegex.containsMatchIn(opening)) {
-            exportedRegex.replace(opening, "android:exported=\"true\"")
+        var fixedOpening = target.value.substring(0, openingEnd + 1)
+        val activityNameRegex = Regex("""(?is)android:name\s*=\s*["'][^"']*["']""")
+        fixedOpening = if (activityNameRegex.containsMatchIn(fixedOpening)) {
+            activityNameRegex.replace(fixedOpening, "android:name=\"$activityName\"")
         } else {
-            opening.dropLast(1) + " android:exported=\"true\">"
+            fixedOpening.dropLast(1) + " android:name=\"$activityName\">"
+        }
+        val exportedRegex = Regex("""(?is)android:exported\s*=\s*["'][^"']*["']""")
+        fixedOpening = if (exportedRegex.containsMatchIn(fixedOpening)) {
+            exportedRegex.replace(fixedOpening, "android:exported=\"true\"")
+        } else {
+            fixedOpening.dropLast(1) + " android:exported=\"true\">"
         }
         var fixedBlock = fixedOpening + target.value.substring(openingEnd + 1)
         if (launcherBlock == null) {

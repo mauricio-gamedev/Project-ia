@@ -20,13 +20,6 @@ class OpenAiCompatibleProvider(
 ) : AiProvider {
     override val id: String = configuration.providerName.ifBlank { "OpenAI-compatible" }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(45, TimeUnit.SECONDS)
-        .callTimeout(210, TimeUnit.SECONDS)
-        .build()
-
     override suspend fun generate(request: AiRequest): AiResponse = withContext(Dispatchers.IO) {
         val validation = ProviderConfigurationValidator.validate(configuration)
         if (validation != null) throw ProviderConfigurationException(validation)
@@ -63,7 +56,7 @@ class OpenAiCompatibleProvider(
             .post(body)
             .build()
 
-        client.newCall(httpRequest).execute().use { response ->
+        SHARED_CLIENT.newCall(httpRequest).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 // Never surface arbitrary provider response bodies: they can echo user data or secrets.
@@ -80,8 +73,17 @@ class OpenAiCompatibleProvider(
                 ?: throw IllegalStateException("Resposta incompatível: nenhuma escolha retornada.")
             val message = first.optJSONObject("message")
                 ?: throw IllegalStateException("Resposta incompatível: mensagem ausente.")
-            val text = message.optString("content", "").trim()
-            if (text.isBlank()) throw IllegalStateException("O modelo retornou uma resposta vazia.")
+            val text = OpenAiCompatibleResponseParser.extractTextContent(message.opt("content"))
+                .ifBlank { message.optString("refusal", "").trim() }
+            if (text.isBlank()) {
+                val finishReason = first.optString("finish_reason", "")
+                val reason = if (finishReason == "length") {
+                    "O modelo encerrou a resposta por limite de saída e não retornou texto utilizável."
+                } else {
+                    "O modelo retornou uma resposta sem conteúdo de texto utilizável."
+                }
+                throw IllegalStateException(reason)
+            }
             AiResponse(text, id, configuration.modelName)
         }
     }
@@ -99,6 +101,13 @@ class OpenAiCompatibleProvider(
     }
 
     private companion object {
+        // Reuse connections and dispatcher threads across requests and model switches.
+        val SHARED_CLIENT = OkHttpClient.Builder()
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .callTimeout(210, TimeUnit.SECONDS)
+            .build()
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

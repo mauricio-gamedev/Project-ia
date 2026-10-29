@@ -25,6 +25,18 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 private val SHA256_DIGEST_PATTERN = Regex("[0-9a-fA-F]{64}")
+private const val MAX_DIAGNOSTIC_CHARS = 8_000
+private const val MAX_DIAGNOSTIC_LINES = 90
+
+/** Decode plain-text fallback logs without accidentally surfacing binary ZIP data in the UI or AI prompt. */
+internal fun readableRawBuildLog(bytes: ByteArray, maxChars: Int): String? {
+    if (bytes.isEmpty() || maxChars <= 0) return null
+    val decoded = bytes.toString(Charsets.UTF_8)
+    if (decoded.isBlank()) return null
+    val readableCount = decoded.count { it == '\n' || it == '\r' || it == '\t' || !it.isISOControl() }
+    if (readableCount.toDouble() / decoded.length < 0.90) return null
+    return decoded.trim().takeLast(maxChars).takeIf { it.isNotBlank() }
+}
 
 internal fun verifyPublishedApkChecksum(expectedChecksum: String?, actualChecksum: String) {
     val expected = expectedChecksum?.trim()?.takeIf { SHA256_DIGEST_PATTERN.matches(it) }
@@ -48,6 +60,69 @@ data class BuiltAndroidArtifact(
     val branch: String,
     val runUrl: String,
 )
+
+
+/** Sanitized build failure with the run URL and the most relevant Gradle/compiler diagnostics. */
+class AndroidBuildFailureException(
+    val runUrl: String,
+    val conclusion: String,
+    val diagnostics: String,
+) : IOException(
+    "O Gradle não conseguiu compilar o projeto (resultado: " + conclusion + "). " +
+        (if (diagnostics.isBlank()) "Abra a execução para consultar o log." else "Os erros principais foram capturados para a correção assistida.") +
+        " Execução: " + runUrl,
+)
+
+internal fun classifyGitHubBuildFailure(statusCode: Int, providerMessage: String = ""): String {
+    val detail = providerMessage.lowercase()
+    return when (statusCode) {
+        401 -> "O GitHub recusou a sessão OAuth (HTTP 401). Ela pode ter expirado ou sido revogada; sincronize ou reconecte a conta."
+        403 -> when {
+            detail.contains("protected") || detail.contains("rule violations") ||
+                detail.contains("cannot update this protected ref") ->
+                "A conta GitHub foi autenticada, mas uma regra de proteção da branch bloqueou a instalação/atualização do workflow. Use um repositório privado de build dedicado com uma branch padrão que permita essa configuração, ou ajuste a regra por um caminho autorizado. O Núcleo não vai contornar a proteção."
+            detail.contains("rate limit") || detail.contains("api rate limit") ->
+                "O GitHub limitou as requisições da API. Aguarde a cota reiniciar e tente novamente."
+            detail.contains("resource not accessible") || detail.contains("insufficient") ->
+                "A sessão existe, mas não tem permissão para este recurso. Confirme os escopos repo/workflow, acesso de escrita ao repositório e se GitHub Actions está habilitado."
+            else ->
+                "O GitHub bloqueou a operação (HTTP 403). A conta pode estar conectada, mas falta permissão de escrita/workflow, a cota da API foi atingida ou Actions está desabilitado."
+        }
+        404 -> "O GitHub não encontrou o repositório, workflow ou recurso. Em repositórios privados, confirme owner/nome e se a conta autorizada tem acesso."
+        409, 422 -> when {
+            detail.contains("protected") || detail.contains("rule violations") ->
+                "Uma regra de proteção ou política do repositório bloqueou a alteração. Use uma configuração de build autorizada; o Núcleo não vai ignorar regras de branch."
+            else ->
+                "O GitHub recusou a alteração Git (HTTP $statusCode). Confira se a branch padrão está inicializada e se a referência ainda existe."
+        }
+        429 -> "O GitHub limitou as requisições (HTTP 429). Aguarde e tente novamente."
+        in 500..599 -> "O GitHub apresentou uma falha temporária (HTTP $statusCode). Tente novamente."
+        else -> "O GitHub respondeu HTTP $statusCode durante a operação de build."
+    }
+}
+
+internal fun sanitizeBuildDiagnostics(raw: String): String {
+    var safe = raw
+        .replace(Regex("(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s]+")) {
+            it.groupValues[1] + "[REDACTED]"
+        }
+        .replace(Regex("\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b"), "[REDACTED]")
+        .replace(Regex("\\bgithub_pat_[A-Za-z0-9_]{20,}\\b"), "[REDACTED]")
+        .replace(Regex("\\bsk-[A-Za-z0-9_-]{15,}\\b"), "[REDACTED]")
+        .replace(Regex("\\bAKIA[0-9A-Z]{16}\\b"), "[REDACTED]")
+        .replace(Regex("\\bAIza[0-9A-Za-z_-]{30,}\\b"), "[REDACTED]")
+        .replace(Regex("(?i)((?:api[_-]?key|(?:access|refresh)?[_-]?token|client[_-]?secret|password|secret|credential)\\s*[=:]\\s*)[^\\s,;]+")) {
+            it.groupValues[1] + "[REDACTED]"
+        }
+    val important = Regex(
+        "(?i)(^\\s*e: |\\berror:|unresolved reference|cannot find symbol|compilation failed|failed with an exception|what went wrong|execution failed|could not resolve|could not find|manifest merger failed|duplicate class|type mismatch|expecting [a-z]+|not enough information to infer|is not abstract and does not implement|resource linking failed|aapt:|\\.kt:[0-9]+:[0-9]+|\\.java:[0-9]+:[0-9]+)"
+    )
+    val lines = safe.lineSequence().toList()
+    var selected = lines.filter { important.containsMatchIn(it) }
+    if (selected.isEmpty()) selected = lines.takeLast(40)
+    safe = selected.takeLast(MAX_DIAGNOSTIC_LINES).joinToString("\n")
+    return safe.takeLast(MAX_DIAGNOSTIC_CHARS)
+}
 
 /**
  * Builds Android projects in a user-owned PRIVATE GitHub repository with GitHub Actions.
@@ -80,7 +155,11 @@ class GitHubAndroidBuildAdapter(
             }
             val permissions = json.optJSONObject("permissions")
             if (permissions?.optBoolean("push", false) != true) {
-                throw IOException("O token não tem permissão de escrita nesse repositório. Use um token restrito ao repositório privado com Contents: Read and write.")
+                throw IOException(
+                    "A conta GitHub autorizada não tem permissão de escrita confirmada neste repositório. " +
+                        "Confirme que você pode enviar commits para ele, que o repositório é privado e que a autorização OAuth inclui repo e workflow. " +
+                        "Uma regra de proteção também pode bloquear a operação mesmo com a conta conectada.",
+                )
             }
             val defaultBranch = json.optString("default_branch", "").trim()
             if (defaultBranch.isBlank() || !isSafeBranch(defaultBranch)) {
@@ -199,8 +278,16 @@ class GitHubAndroidBuildAdapter(
             onStatus("Gradle está compilando o APK. Isso pode levar alguns minutos…")
             val run = awaitRun(target, branch, token, onStatus)
             val runUrl = run.optString("html_url", target.htmlUrl + "/actions")
-            if (run.optString("conclusion") != "success") {
-                throw IOException("A compilação falhou no GitHub Actions. Abra a execução para ver o erro: $runUrl")
+            val conclusion = run.optString("conclusion", "unknown")
+            if (conclusion != "success") {
+                onStatus("O GitHub Actions terminou com falha. Recolhendo os erros principais do Gradle…")
+                val diagnostics = collectBuildDiagnostics(
+                    owner = owner,
+                    repository = repository,
+                    runId = run.optLong("id"),
+                    token = token,
+                )
+                throw AndroidBuildFailureException(runUrl, conclusion, diagnostics)
             }
 
             onStatus("Compilação concluída. Baixando e verificando o artefato…")
@@ -275,10 +362,6 @@ class GitHubAndroidBuildAdapter(
                     })
                 }
                 if (status == "completed") {
-                    if (current.optString("conclusion") != "success") {
-                        val url = current.optString("html_url", target.htmlUrl + "/actions")
-                        throw IOException("O Gradle não conseguiu compilar este projeto Android. Veja o log de build: $url")
-                    }
                     return current
                 }
             } else if (attempt == 3) {
@@ -289,6 +372,116 @@ class GitHubAndroidBuildAdapter(
         throw IOException("O GitHub Actions não concluiu o build dentro do limite de espera. A execução pode continuar em segundo plano: $url")
     }
 
+    private fun collectBuildDiagnostics(
+        owner: String,
+        repository: String,
+        runId: Long,
+        token: String,
+    ): String {
+        if (runId <= 0L) return ""
+        return try {
+            val url = apiUrl("repos", owner, repository, "actions", "runs", runId.toString(), "jobs")
+                .newBuilder()
+                .addQueryParameter("per_page", "50")
+                .build()
+            val jobs = JSONObject(apiCall("GET", url, token)).optJSONArray("jobs") ?: JSONArray()
+            val failedJobs = (0 until jobs.length())
+                .mapNotNull { jobs.optJSONObject(it) }
+                .filter { it.optString("conclusion") == "failure" }
+                .take(MAX_DIAGNOSTIC_JOBS)
+            val raw = buildString {
+                failedJobs.forEach { job ->
+                    val id = job.optLong("id")
+                    if (id <= 0L) return@forEach
+                    appendLine("===== FAILED JOB: " + job.optString("name", "Android build") + " =====")
+                    appendLine(downloadJobLogs(owner, repository, id, token))
+                    appendLine()
+                }
+            }
+            sanitizeBuildDiagnostics(raw)
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun downloadJobLogs(
+        owner: String,
+        repository: String,
+        jobId: Long,
+        token: String,
+    ): String {
+        val request = Request.Builder()
+            .url(apiUrl("repos", owner, repository, "actions", "jobs", jobId.toString(), "logs"))
+            .header("Authorization", "Bearer " + token)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", API_VERSION)
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw GitHubBuildException(response.code, "O GitHub não permitiu consultar o log da compilação.")
+            }
+            val body = response.body ?: return ""
+            val archive = ByteArrayOutputStream()
+            body.byteStream().use { input ->
+                val buffer = ByteArray(16 * 1024)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_BUILD_LOG_ARCHIVE_BYTES) {
+                        throw IOException("O arquivo de log excedeu o limite de diagnóstico.")
+                    }
+                    archive.write(buffer, 0, count)
+                }
+            }
+            val bytes = archive.toByteArray()
+            if (bytes.isEmpty()) return "O GitHub retornou um log vazio para o job $jobId."
+
+            // The Actions API normally returns a ZIP archive. Some gateways/proxies can
+            // return decoded plain text instead; don't pass that text into ZipInputStream.
+            val isZipArchive = bytes.size >= 4 &&
+                bytes[0] == 'P'.code.toByte() &&
+                bytes[1] == 'K'.code.toByte()
+            if (!isZipArchive) {
+                return readableRawBuildLog(bytes, MAX_RAW_LOG_CHARS)
+                    ?: "O GitHub retornou um log em formato de texto ilegível para o job $jobId."
+            }
+
+            val combined = StringBuilder()
+            var foundEntry = false
+            try {
+                ZipInputStream(bytes.inputStream()).use { zip ->
+                    while (combined.length < MAX_RAW_LOG_CHARS) {
+                        val entry = zip.nextEntry ?: break
+                        foundEntry = true
+                        if (!entry.isDirectory) {
+                            combined.appendLine("LOG: " + entry.name.take(160))
+                            val entryBytes = readZipEntryAtMost(zip, MAX_BYTES_PER_LOG_ENTRY)
+                            combined.appendLine(entryBytes.toString(Charsets.UTF_8))
+                            if (entryBytes.size >= MAX_BYTES_PER_LOG_ENTRY) {
+                                combined.appendLine("[log truncado pelo limite de tamanho]")
+                            }
+                            combined.appendLine()
+                        }
+                        zip.closeEntry()
+                    }
+                }
+            } catch (_: java.util.zip.ZipException) {
+                return readableRawBuildLog(bytes, MAX_RAW_LOG_CHARS)
+                    ?: "O GitHub retornou um arquivo de log ZIP inválido para o job $jobId."
+            }
+            if (!foundEntry) {
+                // A gateway can return plain text despite a ZIP-like header. Use the body only
+                // when it is mostly printable text; otherwise avoid showing binary bytes.
+                return readableRawBuildLog(bytes, MAX_RAW_LOG_CHARS)
+                    ?: "O GitHub retornou um arquivo de log ZIP sem entradas para o job $jobId."
+            }
+            // Build/compiler errors tend to be near the end; preserve the tail when limiting.
+            return combined.toString().takeLast(MAX_RAW_LOG_CHARS)
+        }
+    }
     private suspend fun ensureWorkflow(target: GitHubBuildRepository, token: String) {
         val url = apiUrl("repos", target.owner, target.name, "contents", ".github", "workflows", WORKFLOW_FILE)
             .newBuilder()
@@ -330,9 +523,14 @@ class GitHubAndroidBuildAdapter(
         try {
             apiCall("PUT", url, token, body)
         } catch (error: GitHubBuildException) {
+            val detail = error.message.orEmpty()
+            if (error.statusCode == 403 && detail.contains("regra de proteção", ignoreCase = true)) {
+                throw IOException(detail, error)
+            }
             if (error.statusCode == 403 || error.statusCode == 404) {
                 throw IOException(
-                    "O token precisa de Contents: Read and write e Workflows: Read and write no repositório privado.",
+                    "O GitHub não conseguiu instalar o workflow. Confirme Contents: Read and write, Workflows: Read and write, acesso à branch padrão e regras de proteção do repositório. $detail",
+                    error,
                 )
             }
             throw error
@@ -409,8 +607,11 @@ class GitHubAndroidBuildAdapter(
                         "app-debug.apk.sha256" -> {
                             if (checksumEntrySeen) throw IOException("O artefato contém checksums duplicados.")
                             checksumEntrySeen = true
-                            expectedSha = readZipEntryAtMost(zip, 2_048)
-                                .toString(Charsets.UTF_8)
+                            val checksumBytes = readZipEntryAtMost(zip, MAX_CHECKSUM_ENTRY_BYTES)
+                            if (checksumBytes.size >= MAX_CHECKSUM_ENTRY_BYTES) {
+                                throw IOException("O checksum publicado excedeu o limite esperado.")
+                            }
+                            expectedSha = checksumBytes.toString(Charsets.UTF_8)
                                 .trim()
                                 .split(Regex("\\s+"))
                                 .firstOrNull()
@@ -432,16 +633,20 @@ class GitHubAndroidBuildAdapter(
         }
     }
     private fun readZipEntryAtMost(input: ZipInputStream, maxBytes: Int): ByteArray {
+        require(maxBytes > 0) { "O limite de leitura do ZIP precisa ser positivo." }
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(256)
         var total = 0
-        while (true) {
-            val count = input.read(buffer)
+        while (total < maxBytes) {
+            val wanted = minOf(buffer.size, maxBytes - total)
+            val count = input.read(buffer, 0, wanted)
             if (count < 0) break
-            total += count
-            if (total > maxBytes) throw IOException("O checksum publicado excedeu o limite esperado.")
+            if (count == 0) continue
             output.write(buffer, 0, count)
+            total += count
         }
+        // The caller closes the entry after this bounded read; closeEntry() safely discards
+        // the remainder, so a long log entry does not discard all diagnostic output.
         return output.toByteArray()
     }
 
@@ -462,7 +667,7 @@ class GitHubAndroidBuildAdapter(
         require(owner.matches(OWNER_PATTERN)) { "O proprietário do repositório GitHub não é válido." }
         require(repository.matches(REPOSITORY_PATTERN)) { "O nome do repositório GitHub não é válido." }
         require(token.isNotBlank() && token.length <= 512 && !token.any { it.isWhitespace() }) {
-            "Cole um token pessoal do GitHub válido. O token não é enviado ao modelo de IA."
+            "A sessão OAuth do GitHub está ausente ou inválida. Reconecte a conta em Configurações; não é necessário colar um token pessoal."
         }
     }
 
@@ -496,16 +701,13 @@ class GitHubAndroidBuildAdapter(
         client.newCall(builder.build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val message = when (response.code) {
-                    401 -> "O GitHub recusou o token. Confirme se ele está válido."
-                    403 -> "O GitHub bloqueou a operação. Confira as permissões do token, a cota da API e se Actions está habilitado."
-                    404 -> "O GitHub não encontrou o repositório, workflow ou recurso solicitado. Confira owner/nome e permissões."
-                    409, 422 -> "O GitHub recusou a alteração Git. Verifique se o repositório tem uma branch padrão inicializada."
-                    429 -> "O GitHub limitou as requisições. Tente novamente mais tarde."
-                    in 500..599 -> "O GitHub apresentou uma falha temporária."
-                    else -> "O GitHub respondeu HTTP ${response.code}."
-                }
-                throw GitHubBuildException(response.code, message)
+                val providerMessage = runCatching {
+                    org.json.JSONObject(text).optString("message").take(400)
+                }.getOrDefault("")
+                throw GitHubBuildException(
+                    response.code,
+                    classifyGitHubBuildFailure(response.code, providerMessage),
+                )
             }
             return text
         }
@@ -525,6 +727,11 @@ class GitHubAndroidBuildAdapter(
         private const val MAX_SOURCE_ARCHIVE_BYTES = 8L * 1024L * 1024L
         private const val MAX_ARTIFACT_ARCHIVE_BYTES = 160L * 1024L * 1024L
         private const val MAX_APK_BYTES = 120L * 1024L * 1024L
+        private const val MAX_BUILD_LOG_ARCHIVE_BYTES = 8 * 1024 * 1024
+        private const val MAX_BYTES_PER_LOG_ENTRY = 1_500_000
+        private const val MAX_CHECKSUM_ENTRY_BYTES = 2_048
+        private const val MAX_RAW_LOG_CHARS = 200_000
+        private const val MAX_DIAGNOSTIC_JOBS = 3
         private const val MAX_POLL_ATTEMPTS = 120
         private const val POLL_INTERVAL_MILLIS = 10_000L
         private val OWNER_PATTERN = Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37})")

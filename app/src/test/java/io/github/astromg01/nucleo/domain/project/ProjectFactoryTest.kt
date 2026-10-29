@@ -121,6 +121,14 @@ class ProjectFactoryTest {
     }
 
     @Test
+    fun `rejects empty generated source files`() {
+        val error = assertThrows(ProjectDraftValidationException::class.java) {
+            factory.validate(draftOf("Main.kt", "  \n\t"))
+        }
+        assertTrue(error.message!!.contains("veio vazio"))
+    }
+
+    @Test
     fun `rejects an oversized individual file`() {
         val error = assertThrows(ProjectDraftValidationException::class.java) {
             factory.validate(

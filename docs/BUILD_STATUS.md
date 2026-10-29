@@ -6,17 +6,17 @@ The Android CI workflow at the repository's Android CI workflow file is the auth
 
 ## What CI checks
 
-The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact, calculates its checksum, and uploads the APK as a workflow artifact.
+The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact and signing, calculates its checksum, and uploads the APK as a workflow artifact. The run summary uses `printf` so shell does not interpret the displayed commit and APK hash as commands.
 
 Expected local output after a successful build:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-The app package ID is io.github.astromg01.nucleo. The current development version is 0.7.1-alpha with versionCode 11.
+The app package ID is io.github.astromg01.nucleo. The current development version is 0.8.3-alpha with versionCode 15.
 
 ## Reference validation
 
-The 0.7.1-alpha code path has passed the GitHub Actions unit-test/build job, APK verification, checksum generation, and artifact upload. See the Actions history for the exact commit and signing summary. Documentation commits may trigger additional CI runs; prefer the newest successful run matching the current branch or pull-request head over a historical result.
+The main release line remains 0.7.1-alpha / versionCode 11. PR #8 contains the current Project Factory generation, repair, AI code-review JSON recovery, GitHub-session, and build-diagnostics hardening. Check the live [PR #8](https://github.com/mauricio-gamedev/Project-ia/pull/8) and its newest check on the exact head SHA before treating these changes as released. CI verifies app compilation/tests and the app APK; it does not compile every source project created by Project Factory.
 
 ## What a green build means
 

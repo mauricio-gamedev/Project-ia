@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -60,9 +64,12 @@ import io.github.astromg01.nucleo.core.ai.AiTaskType
 import io.github.astromg01.nucleo.domain.project.GeneratedProjectFile
 import io.github.astromg01.nucleo.domain.project.ProjectDraft
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewService
+import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewGenerationService
 import io.github.astromg01.nucleo.domain.project.ProjectCodeReviewReport
 import io.github.astromg01.nucleo.domain.project.ProjectSourceSnapshot
 import io.github.astromg01.nucleo.domain.project.ProjectFactory
+import io.github.astromg01.nucleo.domain.project.ProjectGenerationValidator
+import io.github.astromg01.nucleo.domain.project.ProjectGenerationRepairService
 import io.github.astromg01.nucleo.domain.project.AndroidProjectScaffold
 import io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter
 import io.github.astromg01.nucleo.domain.project.BuiltAndroidArtifact
@@ -99,12 +106,16 @@ private data class ProjectRepairDiffEntry(
 @Composable
 fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Unit = {}) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val stagingRoot = remember(context) { File(context.cacheDir, "nucleo-project-factory") }
     val githubConnectorPreferences = remember(context) { GitHubConnectorPreferences(context) }
     val githubOAuthSession = remember(context) { GitHubOAuthSession(context, container.secretStore) }
     var selectedBuildRepository by remember { mutableStateOf(githubConnectorPreferences.selectedBuildRepository()) }
-    var githubBuildTokenAvailable by remember { mutableStateOf(container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null) }
+    var githubBuildTokenAvailable by remember { mutableStateOf(!container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()) }
+    var githubAccountLogin by remember { mutableStateOf<String?>(null) }
+    var githubSyncTick by remember { mutableStateOf(0) }
+    var syncingGitHub by remember { mutableStateOf(false) }
 
     var projectName by remember { mutableStateOf("Meu projeto") }
     var description by remember { mutableStateOf("") }
@@ -113,10 +124,16 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
     var stagedProject by remember { mutableStateOf<StagedProject?>(null) }
+    var currentDraft by remember { mutableStateOf<ProjectDraft?>(null) }
+    var generationValidationIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var verifyingBuildTarget by remember { mutableStateOf(false) }
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
     var buildStatus by remember { mutableStateOf("") }
+    var githubStatus by remember { mutableStateOf("") }
+    var buildFailureDiagnostics by remember { mutableStateOf("") }
+    var buildFailureRunUrl by remember { mutableStateOf("") }
+    var repairingBuild by remember { mutableStateOf(false) }
     var builtApk by remember { mutableStateOf<BuiltAndroidArtifact?>(null) }
     var visibleFileLimit by remember { mutableStateOf(MAX_VISIBLE_FILES) }
     var previewFile by remember { mutableStateOf<StagedFileEvidence?>(null) }
@@ -134,12 +151,99 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var reviewSnapshot by remember { mutableStateOf<ProjectSourceSnapshot?>(null) }
     var reviewReport by remember { mutableStateOf<ProjectCodeReviewReport?>(null) }
     var repairCandidate by remember { mutableStateOf<StagedProject?>(null) }
+    var repairCandidateDraft by remember { mutableStateOf<ProjectDraft?>(null) }
+    var repairCandidateValidationIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
+
+    val projectInteractionLocked = generating || exporting || buildingApk || verifyingBuildTarget ||
+        reviewingCode || proposingRepair || repairingBuild || syncingGitHub
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) githubSyncTick += 1
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(githubSyncTick, generating, buildingApk, verifyingBuildTarget, repairingBuild) {
+        if (generating || buildingApk || verifyingBuildTarget || repairingBuild) return@LaunchedEffect
+
+        val storedToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
+        githubBuildTokenAvailable = storedToken
+        selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
+        if (!storedToken) {
+            githubAccountLogin = null
+            githubStatus = "Nenhuma sessão GitHub salva neste dispositivo. Abra o Conector GitHub e autorize a conta."
+            return@LaunchedEffect
+        }
+
+        syncingGitHub = true
+        githubStatus = "Validando a sessão GitHub e sincronizando o repositório de build…"
+        try {
+            val token = githubOAuthSession.validAccessToken()
+                ?: throw IOException("Não há token de acesso válido salvo. Reconecte a conta GitHub.")
+            val login = io.github.astromg01.nucleo.domain.github.GitHubConnector()
+                .authenticatedUserLogin(token)
+            githubAccountLogin = login
+            githubBuildTokenAvailable = true
+
+            val repository = githubConnectorPreferences.selectedBuildRepository()
+            selectedBuildRepository = repository
+            if (repository == null) {
+                githubStatus = "Conta GitHub confirmada como @" + login +
+                    ", mas falta escolher um repositório privado dedicado à compilação. A seleção do chat é separada."
+            } else {
+                try {
+                    val target = GitHubAndroidBuildAdapter(context).verifyRepository(
+                        repository.owner,
+                        repository.name,
+                        token,
+                    )
+                    githubStatus = "Conta @" + login + " confirmada · repositório de build " +
+                        target.owner + "/" + target.name + " validado (privado e com escrita)."
+                } catch (repositoryError: CancellationException) {
+                    throw repositoryError
+                } catch (repositoryError: Exception) {
+                    githubStatus = "Conta @" + login + " autenticada, mas o repositório de build não está pronto: " +
+                        (repositoryError.message ?: "não foi possível validar privacidade e permissão de escrita.")
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val message = error.message ?: "Não foi possível confirmar a conta no GitHub agora."
+            val authFailure = when (error) {
+                is io.github.astromg01.nucleo.domain.github.GitHubConnector.GitHubConnectorException ->
+                    error.statusCode == 401
+                is io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter.GitHubBuildException ->
+                    error.statusCode == 401
+                else -> message.contains("reconecte", ignoreCase = true) ||
+                    message.contains("sessão GitHub expirou", ignoreCase = true) ||
+                    message.contains("bad_refresh_token", ignoreCase = true) ||
+                    message.contains("não há token de acesso válido", ignoreCase = true)
+            }
+            githubAccountLogin = null
+            if (authFailure) {
+                githubOAuthSession.clearRejectedCredentials()
+                githubBuildTokenAvailable = false
+            }
+            githubStatus = if (authFailure) {
+                "O GitHub recusou a sessão salva; removi somente as credenciais inválidas, preservando a seleção de repositório. Reconecte a conta: " + message
+            } else {
+                "O token está salvo, mas não consegui confirmar a conta no GitHub agora. Isso não prova que a conexão foi perdida: " + message
+            }
+        } finally {
+            syncingGitHub = false
+        }
+    }
 
     fun clearReviewState() {
         val candidate = repairCandidate
         repairCandidate = null
+        repairCandidateDraft = null
+        repairCandidateValidationIssues = emptyList()
         reviewSnapshot = null
         reviewReport = null
         repairSummary = ""
@@ -160,13 +264,29 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     }
 
     fun discardCurrentDraft(showStatus: Boolean = false) {
-        val previous = stagedProject ?: return
+        val previous = stagedProject
         stagedProject = null
+        currentDraft = null
+        generationValidationIssues = emptyList()
         visibleFileLimit = MAX_VISIBLE_FILES
         previewFile = null
         preview = null
         previewError = null
         previewLoading = false
+        buildFailureDiagnostics = ""
+        buildFailureRunUrl = ""
+        buildStatus = ""
+        builtApk?.file?.delete()
+        builtApk = null
+        buildConsent = false
+
+        if (previous == null) {
+            if (showStatus) {
+                status = "Rascunho descartado; não havia arquivos temporários ativos."
+                statusIsError = false
+            }
+            return
+        }
         if (showStatus) {
             status = "Limpando o rascunho temporário…"
             statusIsError = false
@@ -188,7 +308,6 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             }
         }
     }
-
     val zipExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri: Uri? ->
@@ -362,6 +481,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 discardCurrentDraft()
             },
             label = { Text("Nome do projeto") },
+            enabled = !projectInteractionLocked,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
@@ -369,22 +489,26 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         Text("Perfil inicial", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileChip("Android / APK", profile == ProjectProfile.ANDROID_APP) {
+                ProfileChip("Android / APK", profile == ProjectProfile.ANDROID_APP, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.ANDROID_APP
+                    clearReviewState()
                     discardCurrentDraft()
                 }
-                ProfileChip("Web", profile == ProjectProfile.WEB_APP) {
+                ProfileChip("Web", profile == ProjectProfile.WEB_APP, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.WEB_APP
+                    clearReviewState()
                     discardCurrentDraft()
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileChip("Python", profile == ProjectProfile.PYTHON) {
+                ProfileChip("Python", profile == ProjectProfile.PYTHON, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.PYTHON
+                    clearReviewState()
                     discardCurrentDraft()
                 }
-                ProfileChip("Genérico", profile == ProjectProfile.GENERIC) {
+                ProfileChip("Genérico", profile == ProjectProfile.GENERIC, enabled = !projectInteractionLocked) {
                     profile = ProjectProfile.GENERIC
+                    clearReviewState()
                     discardCurrentDraft()
                 }
             }
@@ -402,6 +526,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             supportingText = {
                 Text("${description.length}/${ProjectFactory.MAX_DESCRIPTION_CHARS} caracteres")
             },
+            enabled = !projectInteractionLocked,
             modifier = Modifier.fillMaxWidth(),
             minLines = 5,
             maxLines = 10,
@@ -412,7 +537,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = remoteConsent, onCheckedChange = { remoteConsent = it })
+                Checkbox(checked = remoteConsent, onCheckedChange = { remoteConsent = it }, enabled = !projectInteractionLocked)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Autorizo enviar o pedido ao modelo configurado", fontWeight = FontWeight.SemiBold)
                     Text(
@@ -435,6 +560,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                 } else if (!generating && !exporting && !buildingApk && !verifyingBuildTarget) {
                     clearReviewState()
                     discardCurrentDraft()
+                    currentDraft = null
+                    repairCandidateDraft = null
+                    repairCandidateValidationIssues = emptyList()
+                    generationValidationIssues = emptyList()
+                    buildFailureDiagnostics = ""
+                    buildFailureRunUrl = ""
+                    buildStatus = ""
                     builtApk?.file?.delete()
                     builtApk = null
                     buildConsent = false
@@ -473,28 +605,71 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 jsonObjectMode = true,
                                 taskType = AiTaskType.CODE_GENERATION,
                             )
-                            val response = try {
-                                container.modelRouter.generate(request)
-                            } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
-                                // Some OpenAI-compatible endpoints do not implement JSON mode.
-                                // Retry once without the optional format parameter on HTTP 400 only.
-                                if (error.statusCode == 400 && request.jsonObjectMode) {
-                                    container.modelRouter.generate(request.copy(jsonObjectMode = false))
-                                } else {
-                                    throw error
-                                }
-                            }
-                            val parsedDraft = parseProjectDraft(
-                                responseText = response.text,
+                            val generation = ProjectManifestGenerationService().generate(
+                                request = request,
                                 name = requestedName,
                                 description = requestedDescription,
                                 profile = requestedProfile,
-                            )
-                            val scaffold = AndroidProjectScaffold.complete(parsedDraft)
+                            ) { attemptRequest ->
+                                try {
+                                    container.modelRouter.generate(attemptRequest)
+                                } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                    // Some OpenAI-compatible endpoints do not implement JSON mode.
+                                    // Retry without that optional format parameter on HTTP 400 only.
+                                    if (error.statusCode == 400 && attemptRequest.jsonObjectMode) {
+                                        container.modelRouter.generate(attemptRequest.copy(jsonObjectMode = false))
+                                    } else {
+                                        throw error
+                                    }
+                                }
+                            }
+                            val response = generation.response
+                            val initialScaffold = AndroidProjectScaffold.complete(generation.draft)
+                            val initialIssues = ProjectGenerationValidator.validate(initialScaffold.draft)
+                            var finalDraft = initialScaffold.draft
+                            var repairNote = if (generation.attempts > 1) {
+                                " A resposta inicial veio incompleta e o Núcleo pediu uma segunda geração antes de continuar."
+                            } else {
+                                ""
+                            }
+
+                            if (initialIssues.isNotEmpty()) {
+                                status = "Detectei ${initialIssues.size} problema(s) estrutural(is). Tentando uma correção automática isolada antes de preparar o projeto…"
+                                try {
+                                    val repair = ProjectGenerationRepairService().repairOnce(
+                                        draft = initialScaffold.draft,
+                                        issues = initialIssues,
+                                    ) { repairRequest ->
+                                        try {
+                                            container.modelRouter.generate(repairRequest)
+                                        } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                            if (error.statusCode == 400 && repairRequest.jsonObjectMode) {
+                                                container.modelRouter.generate(repairRequest.copy(jsonObjectMode = false))
+                                            } else {
+                                                throw error
+                                            }
+                                        }
+                                    }
+                                    finalDraft = AndroidProjectScaffold.complete(repair.draft).draft
+                                    repairNote += if (repair.attempted) {
+                                        " Correção automática: ${repair.summary}"
+                                    } else {
+                                        " Correção automática não executada: ${repair.summary}"
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (repairError: Exception) {
+                                    repairNote += " A correção automática não conseguiu terminar: ${repairError.message ?: "erro não detalhado"}."
+                                }
+                            }
+
+                            val finalIssues = ProjectGenerationValidator.validate(finalDraft)
                             val factory = ProjectFactory()
                             val staged = withContext(Dispatchers.IO) {
-                                factory.stage(scaffold.draft, stagingRoot)
+                                factory.stage(finalDraft, stagingRoot)
                             }
+                            generationValidationIssues = finalIssues
+                            currentDraft = finalDraft
                             visibleFileLimit = MAX_VISIBLE_FILES
                             stagedProject = staged
                             builtApk?.file?.delete()
@@ -502,20 +677,24 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                             buildConsent = false
                             val scaffoldNote = if (requestedProfile == ProjectProfile.ANDROID_APP) {
                                 buildString {
-                                    val added = scaffold.addedPaths.size
-                                    val replaced = scaffold.replacedPaths.size
+                                    val added = initialScaffold.addedPaths.size
+                                    val replaced = initialScaffold.replacedPaths.size
                                     if (added > 0 || replaced > 0) {
-                                        append(" Base Android completada: $added arquivo(s) adicionados, $replaced configurado(s) corrigido(s). ")
+                                        append(" Base Android completada: $added arquivo(s) adicionados, $replaced configuração(ões) corrigida(s).")
                                     }
-                                    if (scaffold.defaultLauncherAdded) {
-                                        append("Foi criada uma Activity inicial de contingência; revise se a funcionalidade pedida foi ligada à tela inicial. ")
+                                    if (initialScaffold.defaultLauncherAdded) {
+                                        append(" Foi criada uma Activity de contingência; a validação bloqueia build até sua funcionalidade estar implementada.")
                                     }
                                 }
                             } else {
                                 ""
                             }
-                            status = "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote Ainda não houve compilação."
-                            statusIsError = false
+                            status = if (finalIssues.isEmpty()) {
+                                "Rascunho preparado por ${response.providerName}/${response.modelName}. ${staged.files.size} arquivos verificados em staging privado.$scaffoldNote$repairNote A validação estática passou; ainda falta executar o Gradle para confirmar que compila."
+                            } else {
+                                "Rascunho salvo em staging privado com ${staged.files.size} arquivos, mas ${finalIssues.size} problema(s) permanecem. A compilação está bloqueada até corrigir os itens listados.$scaffoldNote$repairNote"
+                            }
+                            statusIsError = finalIssues.isNotEmpty()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
@@ -523,7 +702,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 error is java.net.SocketTimeoutException ||
                                 (error is java.io.IOException && error.message?.contains("timeout", ignoreCase = true) == true)
                             ) {
-                                "O modelo demorou demais para responder. Aumentei o limite de espera para 210 segundos; tenta novamente ou seleciona outro modelo gratuito no OpenRouter."
+                                "O provedor demorou demais para responder e a solicitação foi interrompida. Tente novamente ou selecione outro modelo; isso não significa que sua conta GitHub foi desconectada."
                             } else {
                                 error.message ?: "Não foi possível gerar o projeto."
                             }
@@ -534,7 +713,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     }
                 }
             },
-            enabled = !generating && !exporting,
+            enabled = !projectInteractionLocked,
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (generating) {
@@ -549,6 +728,37 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
             style = MaterialTheme.typography.bodyMedium,
             color = if (statusIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (generationValidationIssues.isNotEmpty()) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Validação estrutural: ${generationValidationIssues.size} problema(s)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    generationValidationIssues.take(12).forEachIndexed { index, issue ->
+                        Text(
+                            "${index + 1}. $issue",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (generationValidationIssues.size > 12) {
+                        Text(
+                            "Mais ${generationValidationIssues.size - 12} problema(s). Exporte o fonte para revisar todos os arquivos.",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    Text(
+                        "O Núcleo não vai marcar nem iniciar um APK enquanto esses problemas permanecerem.",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
 
         if (profile == ProjectProfile.ANDROID_APP) {
             Card(Modifier.fillMaxWidth()) {
@@ -571,73 +781,83 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        if (githubBuildTokenAvailable) "Conta GitHub autorizada neste dispositivo."
-                        else "Conecte sua conta GitHub em Configurações antes de compilar.",
+                        when {
+                            githubAccountLogin != null -> "Conta GitHub confirmada: @" + githubAccountLogin + "."
+                            githubBuildTokenAvailable -> "Existe uma sessão salva; a conta ainda precisa ser validada com o GitHub."
+                            else -> "Nenhuma sessão GitHub salva. Conecte a conta em Configurações."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (syncingGitHub) {
+                        androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                     OutlinedButton(onClick = onOpenGitHubSettings, enabled = !buildingApk && !verifyingBuildTarget, modifier = Modifier.fillMaxWidth()) {
                         Text("Conectar GitHub / escolher repositório de build")
                     }
                     OutlinedButton(
                         onClick = {
                             selectedBuildRepository = githubConnectorPreferences.selectedBuildRepository()
-                            githubBuildTokenAvailable = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
-                            buildStatus = if (selectedBuildRepository == null) {
-                                "Nenhum repositório de build selecionado no Conector GitHub."
-                            } else if (!githubBuildTokenAvailable) {
-                                "Conecte sua conta GitHub antes de verificar o repositório."
+                            githubBuildTokenAvailable = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
+                            githubSyncTick += 1
+                            githubStatus = if (selectedBuildRepository == null) {
+                                "Nenhum repositório de build dedicado selecionado. Vou sincronizar a sessão e validar o estado no GitHub."
                             } else {
-                                "Seleção atualizada. O repositório será validado antes do build."
+                                "Atualizando a seleção salva e verificando novamente a conta e o repositório no GitHub…"
                             }
                         },
-                        enabled = !buildingApk && !verifyingBuildTarget,
+                        enabled = !buildingApk && !verifyingBuildTarget && !syncingGitHub,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Atualizar repositório de build selecionado") }
+                    ) { Text("Sincronizar conta e repositório GitHub") }
                     Button(
                         onClick = {
                             val repository = githubConnectorPreferences.selectedBuildRepository()
-                            val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                            val hasStoredToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                             if (repository == null) {
-                                buildStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
+                                githubStatus = "Escolha um repositório privado de build no Conector GitHub em Configurações."
                             } else if (!hasStoredToken) {
                                 githubBuildTokenAvailable = false
-                                buildStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
+                                githubStatus = "A conexão GitHub não está disponível. Reconecte a conta em Configurações."
                             } else if (verifyingBuildTarget || buildingApk) {
                                 Unit
                             } else {
                                 verifyingBuildTarget = true
-                                buildStatus = "Validando acesso e privacidade do repositório de build…"
+                                githubStatus = "Validando acesso e privacidade do repositório de build…"
                                 scope.launch {
                                     try {
                                         val token = githubOAuthSession.validAccessToken()
-                                            ?: throw java.io.IOException("Reconecte sua conta GitHub.")
-                                        val target = GitHubAndroidBuildAdapter(context).verifyRepository(repository.owner, repository.name, token)
+                                            ?: throw java.io.IOException("Não há uma sessão OAuth válida salva. Reconecte a conta GitHub.")
+                                        val login = io.github.astromg01.nucleo.domain.github.GitHubConnector()
+                                            .authenticatedUserLogin(token)
+                                        githubAccountLogin = login
+                                        githubBuildTokenAvailable = true
+                                        val target = GitHubAndroidBuildAdapter(context)
+                                            .verifyRepository(repository.owner, repository.name, token)
                                         selectedBuildRepository = repository
-                                        buildStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
+                                        githubStatus = "Repositório privado de build confirmado: ${target.owner}/${target.name}."
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
                                     } catch (error: Exception) {
-                                        buildStatus = error.message ?: "Não foi possível validar o repositório."
+                                        githubStatus = error.message ?: "Não foi possível validar o repositório."
                                     } finally {
                                         verifyingBuildTarget = false
                                     }
                                 }
                             }
                         },
-                        enabled = !verifyingBuildTarget && !buildingApk,
+                        enabled = !verifyingBuildTarget && !buildingApk && !syncingGitHub && githubAccountLogin != null,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (verifyingBuildTarget) CircularProgressIndicator(modifier = Modifier.height(18.dp))
                         else Text("Verificar repositório privado")
                     }
-                    if (buildStatus.isNotBlank()) Text(
-                        buildStatus,
+                    if (githubStatus.isNotBlank()) Text(
+                        githubStatus,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
-                            buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
-                            buildStatus.startsWith("Falha") || buildStatus.startsWith("Nenhum") ||
-                            buildStatus.startsWith("Conecte")) MaterialTheme.colorScheme.error
+                        color = if (githubStatus.startsWith("O GitHub") || githubStatus.startsWith("O token") ||
+                            githubStatus.startsWith("A compilação falhou") || githubStatus.startsWith("Não foi") ||
+                            githubStatus.startsWith("Falha") || githubStatus.startsWith("Nenhum") ||
+                            githubStatus.startsWith("Conecte")) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.secondary,
                     )
                 }
@@ -671,7 +891,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                         }
                         Button(
                             onClick = {
-                                val hasStoredToken = container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID) != null
+                                val hasStoredToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                                 val repository = githubConnectorPreferences.selectedBuildRepository()
                                 when {
                                     !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
@@ -681,15 +901,22 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                         buildStatus = "Conecte sua conta GitHub em Configurações antes de compilar."
                                     }
                                     !repository.isPrivate -> buildStatus = "Por segurança, a compilação aceita somente um repositório privado."
+                                    githubAccountLogin == null || syncingGitHub -> buildStatus = "Sincronize a sessão GitHub e confirme a conta antes de iniciar a compilação."
                                     buildingApk || verifyingBuildTarget -> Unit
                                     else -> {
                                         buildingApk = true
                                         builtApk = null
+                                        buildFailureDiagnostics = ""
+                                        buildFailureRunUrl = ""
                                         buildStatus = "Preparando build remoto…"
                                         scope.launch {
                                             try {
                                                 val token = githubOAuthSession.validAccessToken()
-                                                    ?: throw java.io.IOException("Reconecte sua conta GitHub em Configurações.")
+                                                    ?: throw java.io.IOException("Não há uma sessão OAuth válida salva. Reconecte sua conta em Configurações.")
+                                                val login = io.github.astromg01.nucleo.domain.github.GitHubConnector()
+                                                    .authenticatedUserLogin(token)
+                                                githubAccountLogin = login
+                                                githubBuildTokenAvailable = true
                                                 val artifact = GitHubAndroidBuildAdapter(context).build(
                                                     stagedProject = staged,
                                                     stagingRoot = stagingRoot,
@@ -703,6 +930,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled
                                             } catch (error: Exception) {
+                                                if (error is io.github.astromg01.nucleo.domain.project.AndroidBuildFailureException) {
+                                                    buildFailureDiagnostics = error.diagnostics
+                                                    buildFailureRunUrl = error.runUrl
+                                                } else {
+                                                    buildFailureDiagnostics = ""
+                                                    buildFailureRunUrl = ""
+                                                }
                                                 buildStatus = error.message ?: "Não foi possível compilar o APK."
                                             } finally {
                                                 buildingApk = false
@@ -711,11 +945,12 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     }
                                 }
                             },
-                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating,
+                            enabled = !buildingApk && !verifyingBuildTarget && !exporting && !generating &&
+                                !syncingGitHub && githubAccountLogin != null && generationValidationIssues.isEmpty(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (buildingApk) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                            else Text("Compilar APK na nuvem")
+                            else Text(if (generationValidationIssues.isEmpty()) "Compilar APK na nuvem" else "Corrija a validação antes de compilar")
                         }
                         if (buildingApk) {
                             androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -754,10 +989,133 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                 buildStatus,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (buildStatus.startsWith("O GitHub") || buildStatus.startsWith("O token") ||
-                                    buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("Não foi") ||
-                                    buildStatus.startsWith("Falha")) MaterialTheme.colorScheme.error
+                                    buildStatus.startsWith("A compilação falhou") || buildStatus.startsWith("O Gradle") ||
+                                    buildStatus.startsWith("A sessão") || buildStatus.startsWith("Não foi") ||
+                                    buildStatus.startsWith("Falha") || buildStatus.startsWith("Nenhuma sessão"))
+                                    MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.secondary,
                             )
+                        }
+                        if (buildFailureRunUrl.isNotBlank()) {
+                            TextButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(buildFailureRunUrl)))
+                                    }.onFailure {
+                                        buildStatus = "Não foi possível abrir a execução do GitHub Actions."
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Abrir log completo do Gradle") }
+                        }
+                        if (buildFailureDiagnostics.isNotBlank()) {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Erros principais da compilação", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                    SelectionContainer {
+                                        Text(
+                                            buildFailureDiagnostics.take(2_400),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                        )
+                                    }
+                                    Text(
+                                        "A correção assistida vai enviar o fonte atual e esses diagnósticos ao provedor de IA; ela não executa os arquivos.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Button(
+                                        enabled = !repairingBuild && !buildingApk && !generating && repairCandidate == null,
+                                        onClick = {
+                                            if (!reviewConsent) {
+                                                status = "Ative o consentimento de análise/correção por IA antes de enviar o fonte e os erros do Gradle."
+                                                statusIsError = true
+                                            } else {
+                                                val originalDraft = currentDraft
+                                                if (originalDraft == null) {
+                                                    status = "O fonte completo desse rascunho não está disponível no estado atual. Gere novamente ou abra o rascunho original antes de corrigir."
+                                                    statusIsError = true
+                                                } else {
+                                                    repairingBuild = true
+                                                    status = "Preparando uma proposta de correção a partir dos erros do Gradle…"
+                                                    statusIsError = false
+                                                    val diagnostics = buildFailureDiagnostics
+                                                    val runUrl = buildFailureRunUrl
+                                                    scope.launch {
+                                                        try {
+                                                            val repairIssues = listOf(
+                                                                "A compilação Android falhou no GitHub Actions. URL da execução: " + runUrl,
+                                                                diagnostics,
+                                                            ).filter { it.isNotBlank() }
+                                                            val repair = ProjectGenerationRepairService().repairOnce(
+                                                                originalDraft,
+                                                                repairIssues,
+                                                            ) { repairRequest ->
+                                                                try {
+                                                                    container.modelRouter.generate(repairRequest)
+                                                                } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                                                    if (error.statusCode == 400 && repairRequest.jsonObjectMode) {
+                                                                        container.modelRouter.generate(repairRequest.copy(jsonObjectMode = false))
+                                                                    } else {
+                                                                        throw error
+                                                                    }
+                                                                }
+                                                            }
+                                                            if (!repair.attempted) {
+                                                                status = "A correção automática não foi executada; nenhum rascunho de correção será criado. " + repair.summary
+                                                                statusIsError = true
+                                                                return@launch
+                                                            }
+                                                            val completedDraft = AndroidProjectScaffold.complete(repair.draft).draft
+                                                            val candidateIssues = ProjectGenerationValidator.validate(completedDraft)
+                                                            val originalByPath = originalDraft.files.associateBy { it.path }
+                                                            val candidateDiffs = completedDraft.files.mapNotNull { changed ->
+                                                                val original = originalByPath[changed.path]
+                                                                if (original == null || original.content != changed.content) {
+                                                                    ProjectRepairDiffEntry(changed.path, original?.content.orEmpty(), changed.content)
+                                                                } else {
+                                                                    null
+                                                                }
+                                                            }
+                                                            val candidate = withContext(Dispatchers.IO) {
+                                                                ProjectFactory().stage(completedDraft, stagingRoot)
+                                                            }
+                                                            repairCandidate = candidate
+                                                            repairCandidateDraft = completedDraft
+                                                            repairCandidateValidationIssues = candidateIssues
+                                                            repairSummary = buildString {
+                                                                append("Correção proposta por IA com base nos erros do Gradle. ")
+                                                                append(repair.summary)
+                                                                if (candidateIssues.isEmpty()) {
+                                                                    append(" A validação estática passou; é obrigatório executar o Gradle novamente para confirmar.")
+                                                                } else {
+                                                                    append(" Ainda restam ")
+                                                                    append(candidateIssues.size)
+                                                                    append(" problema(s) estruturais; o build seguirá bloqueado.")
+                                                                }
+                                                            }
+                                                            repairDiffs = candidateDiffs
+                                                            status = "Proposta de correção criada em staging separado; o fonte ativo não foi alterado. Revise o diff antes de aplicar."
+                                                            statusIsError = candidateIssues.isNotEmpty()
+                                                        } catch (cancelled: CancellationException) {
+                                                            throw cancelled
+                                                        } catch (error: Exception) {
+                                                            status = error.message ?: "A IA não conseguiu propor uma correção para os erros do Gradle."
+                                                            statusIsError = true
+                                                        } finally {
+                                                            repairingBuild = false
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        if (repairingBuild) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                                        else Text("Propor correção com IA a partir do Gradle")
+                                    }
+                                }
+                            }
                         }
                     }
                     staged.files.take(visibleFileLimit).forEach { file ->
@@ -921,7 +1279,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     )
                     OutlinedButton(
                         onClick = { discardCurrentDraft(showStatus = true) },
-                        enabled = !exporting && !generating,
+                        enabled = !projectInteractionLocked,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Descartar rascunho e limpar staging")
@@ -931,7 +1289,7 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = reviewConsent, onCheckedChange = { reviewConsent = it })
                         Text(
-                            "Autorizo enviar o conteúdo dos arquivos do rascunho ao provedor remoto para análise e sugestões de correção.",
+                            "Autorizo enviar o conteúdo dos arquivos do rascunho e, se eu pedir correção de build, os diagnósticos sanitizados do Gradle ao provedor remoto.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -963,15 +1321,25 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                             )
                                         }
                                         val request = reviewer.buildReviewRequest(stagedForReview, descriptionForReview, snapshot)
-                                        val response = container.modelRouter.generate(request)
-                                        val report = reviewer.parseReviewResponse(
-                                            responseText = response.text,
+                                        val reviewResult = ProjectCodeReviewGenerationService(reviewer).review(
+                                            request = request,
                                             allowedPaths = snapshot.files.map { it.path }.toSet(),
                                             partial = snapshot.truncatedPaths.isNotEmpty() || snapshot.omittedFileCount > 0,
+                                            generateResponse = { reviewRequest ->
+                                                container.modelRouter.generate(reviewRequest)
+                                            },
                                         )
+                                        val response = reviewResult.response
+                                        val report = reviewResult.report
                                         reviewSnapshot = snapshot
                                         reviewReport = report
-                                        status = "Revisão concluída por ${response.providerName}/${response.modelName}: ${report.findings.size} achado(s). Nenhum código foi executado."
+                                        val retryNote = if (reviewResult.attempts > 1) {
+                                            " (JSON recuperado em " + reviewResult.attempts + " tentativas)"
+                                        } else {
+                                            ""
+                                        }
+                                        status = "Revisão concluída por " + response.providerName + "/" + response.modelName +
+                                            retryNote + ": " + report.findings.size + " achado(s). Nenhum código foi executado."
                                         statusIsError = false
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
@@ -1060,22 +1428,36 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                                     val updatedFiles = currentSnapshot.files.map { original ->
                                                         replacements[original.path] ?: original
                                                     }
+                                                    val proposedDraft = ProjectDraft(
+                                                        name = currentStaged.name,
+                                                        profile = currentStaged.profile,
+                                                        description = description.trim(),
+                                                        files = updatedFiles,
+                                                    )
+                                                    val completedDraft = AndroidProjectScaffold.complete(proposedDraft).draft
+                                                    val candidateIssues = ProjectGenerationValidator.validate(completedDraft)
                                                     val candidate = withContext(Dispatchers.IO) {
-                                                        ProjectFactory().stage(
-                                                            ProjectDraft(
-                                                                name = currentStaged.name,
-                                                                profile = currentStaged.profile,
-                                                                description = description.trim(),
-                                                                files = updatedFiles,
-                                                            ),
-                                                            stagingRoot,
-                                                        )
+                                                        ProjectFactory().stage(completedDraft, stagingRoot)
+                                                    }
+                                                    val actualDiffs = completedDraft.files.mapNotNull { changed ->
+                                                        val original = originalByPath[changed.path]
+                                                        if (original == null || original.content != changed.content) {
+                                                            ProjectRepairDiffEntry(changed.path, original?.content.orEmpty(), changed.content)
+                                                        } else {
+                                                            null
+                                                        }
                                                     }
                                                     repairCandidate = candidate
-                                                    repairSummary = proposal.summary
-                                                    repairDiffs = changedFiles
+                                                    repairCandidateDraft = completedDraft
+                                                    repairCandidateValidationIssues = candidateIssues
+                                                    repairSummary = if (candidateIssues.isEmpty()) {
+                                                        proposal.summary + " A validação estrutural passou; ainda não foi compilado."
+                                                    } else {
+                                                        proposal.summary + " Ainda restam ${candidateIssues.size} problema(s); a compilação continuará bloqueada até corrigir."
+                                                    }
+                                                    repairDiffs = actualDiffs.ifEmpty { changedFiles }
                                                     status = "Proposta criada por ${response.providerName}/${response.modelName} num staging separado. O rascunho original continua intacto; nenhum teste foi executado."
-                                                    statusIsError = false
+                                                    statusIsError = candidateIssues.isNotEmpty()
                                                 } catch (cancelled: CancellationException) {
                                                     throw cancelled
                                                 } catch (error: Exception) {
@@ -1127,13 +1509,26 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                     onClick = {
                                         val previous = stagedProject
                                         stagedProject = candidate
+                                        currentDraft = repairCandidateDraft
+                                        generationValidationIssues = repairCandidateValidationIssues
                                         repairCandidate = null
+                                        repairCandidateDraft = null
+                                        repairCandidateValidationIssues = emptyList()
                                         reviewSnapshot = null
                                         reviewReport = null
                                         repairSummary = ""
                                         repairDiffs = emptyList()
-                                        status = "Rascunho corrigido aplicado como nova revisão. O projeto original foi preservado até a confirmação; o código ainda não foi executado."
-                                        statusIsError = false
+                                        buildFailureDiagnostics = ""
+                                        buildFailureRunUrl = ""
+                                        buildStatus = ""
+                                        builtApk?.file?.delete()
+                                        builtApk = null
+                                        status = if (generationValidationIssues.isEmpty()) {
+                                            "Rascunho corrigido aplicado como nova revisão. A validação estrutural passou; ainda falta executar o Gradle."
+                                        } else {
+                                            "Nova revisão aplicada, mas restam ${generationValidationIssues.size} problema(s). A compilação continua bloqueada."
+                                        }
+                                        statusIsError = generationValidationIssues.isNotEmpty()
                                         if (previous != null) {
                                             scope.launch {
                                                 try {
@@ -1147,13 +1542,15 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
                                             }
                                         }
                                     },
-                                    enabled = !proposingRepair && !reviewingCode && !exporting,
+                                    enabled = !projectInteractionLocked && repairCandidateDraft != null,
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text("Aplicar rascunho corrigido") }
                                 TextButton(
                                     onClick = {
                                         val discard = repairCandidate
                                         repairCandidate = null
+                                        repairCandidateDraft = null
+                                        repairCandidateValidationIssues = emptyList()
                                         repairSummary = ""
                                         repairDiffs = emptyList()
                                         if (discard != null) {
@@ -1258,8 +1655,13 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
 }
 
 @Composable
-private fun ProfileChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+private fun ProfileChip(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    FilterChip(selected = selected, onClick = onClick, enabled = enabled, label = { Text(label) })
 }
 
 private fun parseProjectDraft(
@@ -1267,62 +1669,7 @@ private fun parseProjectDraft(
     name: String,
     description: String,
     profile: ProjectProfile,
-): ProjectDraft {
-    val trimmed = responseText.trim()
-    val start = trimmed.indexOf('{')
-    val end = trimmed.lastIndexOf('}')
-    if (start < 0 || end <= start) {
-        val reason = if (trimmed.isNotEmpty() && trimmed.last() != '}') {
-            "A resposta parece ter sido cortada antes do fim."
-        } else {
-            "A resposta não contém um objeto JSON completo."
-        }
-        throw IllegalArgumentException(
-            reason + " Tente gerar novamente. Se persistir, escolha um modelo com suporte a JSON."
-        )
-    }
-
-    val jsonText = trimmed.substring(start, end + 1)
-    val json = try {
-        JSONObject(jsonText)
-    } catch (error: Exception) {
-        val detail = error.message
-            ?.replace(Regex("[\\r\\n]+"), " ")
-            ?.take(140)
-            ?.let { " Detalhe do parser: " + it + "." }
-            .orEmpty()
-        val hint = if (trimmed.lastOrNull() != '}') {
-            " A resposta pode ter sido interrompida pelo limite de saída."
-        } else {
-            " O modelo pode ter produzido aspas ou quebras de linha sem escape dentro do conteúdo de um arquivo."
-        }
-        throw IllegalArgumentException(
-            "A IA devolveu um manifesto JSON inválido." + hint + detail +
-                " Tente novamente; o Núcleo agora solicita modo JSON quando o provedor suporta esse recurso.",
-            error,
-        )
-    }
-
-    val filesJson = json.optJSONArray("files")
-        ?: throw IllegalArgumentException("O manifesto JSON não contém uma lista 'files' válida.")
-    require(filesJson.length() in 1..ProjectFactory.MAX_FILES) {
-        "O manifesto precisa conter entre 1 e " + ProjectFactory.MAX_FILES + " arquivos."
-    }
-    val files = (0 until filesJson.length()).map { index ->
-        val entry = filesJson.optJSONObject(index)
-            ?: throw IllegalArgumentException("A entrada de arquivo " + (index + 1) + " não é um objeto JSON.")
-        val path = entry.optString("path", "")
-        val content = entry.optString("content", "")
-        require(path.isNotBlank()) { "A entrada de arquivo " + (index + 1) + " não contém caminho." }
-        GeneratedProjectFile(path = path, content = content)
-    }
-    return ProjectDraft(
-        name = name,
-        profile = profile,
-        description = description,
-        files = files,
-    )
-}
+): ProjectDraft = ProjectManifestParser.parse(responseText, name, description, profile)
 
 private fun exportStagedProjectWithAllFilesAccess(
     context: Context,
