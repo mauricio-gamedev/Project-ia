@@ -1,10 +1,10 @@
 # Session Checkpoint — Núcleo AI
 
-**Last verified:** 2026-10-28  
+**Last verified:** 2026-10-28 (Manaus local date; GitHub Actions timestamps are UTC)  
 **Current main release:** `0.7.1-alpha` (`versionCode 11`)  
 **Consolidated candidate in PR #8:** `0.8.3-alpha` (`versionCode 15`)  
 **Default branch:** `main`  
-**Handoff status:** PR #8 contains the Project Factory generation/validation fixes, AI-review JSON recovery, provider response/fallback fixes, chat sessions/commands, modest chat rendering optimization, selected Android dependency synchronization, and the CI-summary quoting fix. The latest full Android CI run [#40791280917](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791280917) passed on candidate source/workflow head `97f9d9779933a4b8c9f82cccd02ba84e13bcb66b`: unit tests, APK build, stable-signing verification, checksum, and artifact upload. The artifact is available, but the new chat/provider/dependency/review flows still need device smoke tests. PR #8 remains open; protected `main` and disabled auto-merge block integration through the connected GitHub path.
+**Handoff status:** The owner is testing candidate `0.8.3-alpha` (`versionCode 15`) on their Android phone and plans to report results next session. Start from the owner's actual observations; do not restart implementation blindly or ask them to repeat supplied context. Current PR #8 head `bbc6ce9e98aba7259e35da21b892cc2ba7a2333e` passed CI run [#40791650177](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791650177), including unit tests, APK build, stable-signing verification, checksum, and artifact upload. PR #8 remains open and `main` is untouched.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
@@ -14,10 +14,10 @@
 - Current live `main` HEAD: `773ee754c88d9555e3f9f63b6527d10ae1c8e2c4`.
 - Latest merged consolidation: [PR #4](https://github.com/mauricio-gamedev/Project-ia/pull/4), merged into `main`.
 - PRs #1 and #2 were closed as superseded. Their intended feature work is included through the consolidation commit; do not reopen or repeat them without checking the live diff.
-- Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (consolidated fix) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
+- Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (stability candidate) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
 - Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.3-alpha`, `versionCode 15` so it can upgrade earlier alpha installs.
-- The owner confirmed a generated test project's APK compiled, installed, and launched on-device after the original Android regex correction. The latest stability candidate passed CI on source/workflow SHA `97f9d9779933a4b8c9f82cccd02ba84e13bcb66b`; chat sessions/commands, AI review recovery, provider switching, and generated dependency synchronization still need on-device smoke tests.
-- The original Android Gradle regex fix and regression test are in commit `2cb10abf3567c65011d993dedb2932f3c983a42d`; run [40777424598](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40777424598) passed on that SHA. The latest complete CI run [40791280917](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791280917) passed on branch head `97f9d9779933a4b8c9f82cccd02ba84e13bcb66b`, including tests, APK assembly, stable-keystore signer verification, APK checksum generation, and upload. The APK's file SHA-256 is `1490758cd2ada09dea77cf41407bf77fab7bdfa6e382269160f63b1d88a99eba`; the uploaded `nucleo-ai-debug-apk` artifact ID is `12861807085`, size 18,837,045 bytes, uploaded archive digest `sha256:92c95b3c09f040a3bb66a11f2ba32c926e6664fb50d94093e896cc179ddbd276`, expiring 2026-11-12. The workflow summary quoting fix is included in this successful run.
+- The owner previously confirmed a generated test project's APK compiled, installed, and launched on-device after the original Android regex correction. The owner is now testing candidate `0.8.3-alpha` on the A06; conversation/session commands, AI review recovery, provider switching, and generated dependency synchronization need device-level outcomes reported.
+- The original Android Gradle regex fix and regression test are in commit `2cb10abf3567c65011d993dedb2932f3c983a42d`. Latest full CI run [#40791650177](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791650177) passed on the current PR head `bbc6ce9e98aba7259e35da21b892cc2ba7a2333e`, including `:app:testDebugUnitTest`, `:app:assembleDebug`, stable-keystore signature verification, checksum generation, and artifact upload. Artifact: `nucleo-ai-debug-apk`, ID `12862505116`, size `18,837,045` bytes, archive digest `sha256:6ff616428e590e331f637531f88eb741631be05808d2eb4716eb7ce0f53eb872`, expires `2026-11-12T00:06:27Z`. APK file SHA-256: `1490758cd2ada09dea77cf41407bf77fab7bdfa6e382269160f63b1d88a99eba`. Use the matching artifact from the Actions run page; choose a newer successful artifact if the live branch head has advanced.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
 
@@ -33,8 +33,20 @@
 - Tests cover manifest parsing/retry, structural validation, Android launcher matching, common import/dependency synchronization, diagnostic sanitization, code-review JSON extraction/retry/path allowlisting, provider-failure classification, chat commands, cooldown invalidation, and Markdown formatting.
 - Owner device testing on 2026-10-28 first exposed `Syntax error in regexp pattern near index 21` during Android generation. The cause was unescaped literal closing braces in Gradle block regexes; those are escaped and the owner subsequently confirmed a generated test APK compiled, installed, and launched without that failure.
 - The same device session exposed `A resposta de revisão não contém JSON válido.` during AI code review. The candidate retries malformed/schema-invalid review responses once, accepts balanced JSON surrounded by Markdown/text, validates required report fields, and does not reissue provider/network failures. It also rejects reports containing only paths outside the staged allowlist.
-- Intermediate CI exposed regressions that were corrected before the final passing candidate: misplaced `@Composable` annotation in `MainActivity.kt`, over-escaped regexes in the generated-import detector, and shell command substitution in the workflow summary. The annotation and import-regex fixes passed CI on `2f1af2f9e48ee2b3cc0bf8d00fccfcab319e90ba`; the workflow quoting fix passed in run [40791280917](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791280917) on SHA `97f9d9779933a4b8c9f82cccd02ba84e13bcb66b`.
+- Intermediate CI had regressions that were corrected before the passing head: misplaced `@Composable` annotation, over-escaped import-detection regexes, and shell command substitution in the CI summary. These failures are from older commits; current head `bbc6ce9e98aba7259e35da21b892cc2ba7a2333e` passed run [#40791650177](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791650177).
 - The latest known repository state includes active ruleset [protect main](https://github.com/mauricio-gamedev/Project-ia/rules/26013092). It has an `update` rule, no bypass actors, and `current_user_can_bypass = never`. The connected integration's merge attempt on the prior PR returned HTTP 405; auto-merge is disabled. Do not bypass/disable this rule without an authorized owner/admin action.
+
+## Resume here — next session
+
+The owner is testing the current APK and will report what happened. Start from those actual results rather than re-asking for supplied context or implementing speculative changes.
+
+1. Refresh live GitHub state: branch `fix/project-factory-generation-github-sync`, PR #8, `main`, newest Actions run for the current head, and matching artifact/signing status. The checkpoint is a handoff, not a replacement for live state.
+2. Use the owner's report as the first priority. Map each result to [SESSION_FLOW.md](SESSION_FLOW.md); do not ask them to repeat test outcomes already present in the conversation.
+3. For each failure, capture expected vs actual, reproduce the exact path, trace its call sites, fix the root cause in a focused commit, and add a regression test. Do not redesign unrelated features or optimize aggressively.
+4. Run relevant tests and full Android CI on the exact new head; verify stable signing, checksum and artifact upload before asking for a new install.
+5. Keep changes on PR #8. Do not touch `main`, replace signing, change the package ID, or bypass the active ruleset. Device behavior remains unverified until the owner reports it.
+
+**Current state at checkpoint:** `main` = `773ee754c88d9555e3f9f63b6527d10ae1c8e2c4`; PR #8 head = `bbc6ce9e98aba7259e35da21b892cc2ba7a2333e`; last complete successful CI = [#40791650177](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791650177); artifact ID = `12862505116`; candidate = `0.8.3-alpha` / `versionCode 15`.
 
 ## Repository presentation already landed
 
@@ -76,14 +88,11 @@ Current live state (2026-10-28):
 
 ## Next-action queue
 
-1. Recheck the latest branch head and run after the checkpoint-only update; confirm the latest CI is green on that SHA without source changes.
-2. For installation, use artifact `nucleo-ai-debug-apk` ID `12861807085` from run [40791280917](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40791280917), or a newer matching artifact from the checkpoint-update run. Verify it is signed with the stable key and corresponds to the code SHA being tested.
-3. On-device, test `/new`, `/clear`, `/delete`, conversation switching, manual jump-to-latest, AI code review, changing models then returning to chat, and a project using Navigation/Lifecycle dependencies. Then smoke-test private build repository validation and remote APK delivery.
-4. If PR #8 is green but cannot merge, keep it open and report the active `protect main` update rule/disabled auto-merge blocker; an authorized owner/admin must adjust it.
-5. Repository description/topics remain unconfigured because no authorized metadata-write path was exposed. Do not work around that with unrelated code.
-6. For future work, start from fresh `main`, inspect source/tests, implement, validate on the exact SHA, review, open PR, and update this checkpoint.
-
-
+1. Wait for the owner's test results for the exact current candidate; capture the failing feature, steps, expected vs actual, and any screenshot/error already provided.
+2. Use [SESSION_FLOW.md](SESSION_FLOW.md) to choose only the relevant reproduction steps and expected outcomes.
+3. Fix reported root causes with regression tests; run full Android CI on the new exact head and verify signing/checksum/artifact provenance.
+4. Keep PR #8 open and `main` untouched; active `protect main` update restrictions and disabled auto-merge block the connected merge path.
+5. Refresh GitHub at the start of any subsequent session and do not repeat completed tasks.
 
 ## Safety and accuracy notes
 
