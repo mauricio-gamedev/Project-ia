@@ -11,6 +11,8 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 - Prefill the Project Factory description and profile from the user's request; keep provider submission behind the existing consent control.
 - Embed the Project Factory in the conversation with a return-to-chat action, preserving the existing staging, validation, source export, code review, and cloud-build safeguards.
 - Remove the separate Project Factory entry from the home screen; project creation now starts from the chat.
+- Keep the embedded Project Factory composed off-screen after returning to chat, preserving staged files, review state, and build diagnostics during normal in-app navigation.
+- Clear stale staging/build evidence when a different project request/profile is opened from chat, and add Android system-back support to return to the conversation.
 - Add intent-routing regression tests for supported project profiles and non-project discussion/content requests.
 - Bump to versionCode 16; preserve the application ID and stable signing identity.
 
