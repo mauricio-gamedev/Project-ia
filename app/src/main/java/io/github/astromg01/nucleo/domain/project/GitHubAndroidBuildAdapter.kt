@@ -19,6 +19,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -37,6 +39,42 @@ internal fun readableRawBuildLog(bytes: ByteArray, maxChars: Int): String? {
     if (readableCount.toDouble() / decoded.length < 0.90) return null
     return decoded.trim().takeLast(maxChars).takeIf { it.isNotBlank() }
 }
+
+/**
+ * Prunes only abandoned build files created by this adapter in the app-private cache directory.
+ * Recent files, unrelated cache entries, symlinks, and non-regular files are left untouched.
+ */
+internal fun cleanupAbandonedBuildCache(
+    cacheDirectory: File,
+    nowMillis: Long = System.currentTimeMillis(),
+    maxAgeMillis: Long = DEFAULT_ABANDONED_BUILD_FILE_AGE_MILLIS,
+): Int {
+    require(maxAgeMillis >= 0L) { "A idade mínima de limpeza não pode ser negativa." }
+    val requestedRoot = cacheDirectory.toPath().toAbsolutePath().normalize()
+    if (!Files.exists(requestedRoot, LinkOption.NOFOLLOW_LINKS) ||
+        Files.isSymbolicLink(requestedRoot) ||
+        !Files.isDirectory(requestedRoot, LinkOption.NOFOLLOW_LINKS)
+    ) return 0
+
+    val root = requestedRoot.toRealPath()
+    val prefixes = listOf("nucleo-source-", "nucleo-artifact-", "nucleo-built-")
+    var removed = 0
+    Files.newDirectoryStream(root).use { children ->
+        for (child in children) {
+            val name = child.fileName?.toString() ?: continue
+            if (prefixes.none(name::startsWith) ||
+                Files.isSymbolicLink(child) ||
+                !Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)
+            ) continue
+            val modifiedAt = Files.getLastModifiedTime(child, LinkOption.NOFOLLOW_LINKS).toMillis()
+            if (modifiedAt > nowMillis || nowMillis - modifiedAt < maxAgeMillis) continue
+            if (Files.deleteIfExists(child)) removed++
+        }
+    }
+    return removed
+}
+
+private const val DEFAULT_ABANDONED_BUILD_FILE_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000
 
 internal fun verifyPublishedApkChecksum(expectedChecksum: String?, actualChecksum: String) {
     val expected = expectedChecksum?.trim()?.takeIf { SHA256_DIGEST_PATTERN.matches(it) }
@@ -144,6 +182,7 @@ class GitHubAndroidBuildAdapter(
     suspend fun verifyRepository(owner: String, repository: String, token: String): GitHubBuildRepository =
         withContext(Dispatchers.IO) {
             validateIdentity(owner, repository, token)
+        cleanupAbandonedBuildCache(context.cacheDir)
             val response = apiCall(
                 method = "GET",
                 url = apiUrl("repos", owner, repository),
@@ -193,6 +232,7 @@ class GitHubAndroidBuildAdapter(
         val sourceArchive = File(context.cacheDir, "nucleo-source-${UUID.randomUUID()}.zip")
         val artifactArchive = File(context.cacheDir, "nucleo-artifact-${UUID.randomUUID()}.zip")
         val apkOutput = File(context.cacheDir, "nucleo-built-${UUID.randomUUID()}.apk")
+        var keepVerifiedApk = false
         try {
             val count = ProjectFactory().writeZip(stagedProject, FileOutputStream(sourceArchive))
             if (count != stagedProject.files.size || !sourceArchive.isFile || sourceArchive.length() !in 1..MAX_SOURCE_ARCHIVE_BYTES) {
@@ -304,6 +344,7 @@ class GitHubAndroidBuildAdapter(
             if (artifactId <= 0L) throw IOException("O GitHub retornou um identificador de artefato inválido.")
             downloadArtifactZip(owner, repository, artifactId, token, artifactArchive)
             val digest = extractAndVerifyApk(artifactArchive, apkOutput)
+            keepVerifiedApk = true
             onStatus("APK compilado e verificado. Salve o arquivo no dispositivo.")
             BuiltAndroidArtifact(
                 file = apkOutput,
@@ -318,6 +359,7 @@ class GitHubAndroidBuildAdapter(
         } finally {
             sourceArchive.delete()
             artifactArchive.delete()
+            if (!keepVerifiedApk) apkOutput.delete()
         }
     }
 

@@ -138,4 +138,36 @@ class GitHubAndroidBuildAdapterTest {
         assertTrue(safe.contains("Only one pluginManagement block"))
     }
 
+    @Test
+    fun cleansOnlyOldAdapterBuildFilesFromPrivateCache() {
+        val root = java.nio.file.Files.createTempDirectory("nucleo-build-cache")
+        val now = System.currentTimeMillis()
+        val day = 24L * 60L * 60L * 1000L
+        val oldSource = java.nio.file.Files.createFile(root.resolve("nucleo-source-old.zip"))
+        val oldApk = java.nio.file.Files.createFile(root.resolve("nucleo-built-old.apk"))
+        val freshArtifact = java.nio.file.Files.createFile(root.resolve("nucleo-artifact-fresh.zip"))
+        val unrelated = java.nio.file.Files.createFile(root.resolve("user-export.zip"))
+        listOf(oldSource, oldApk, unrelated).forEach {
+            java.nio.file.Files.setLastModifiedTime(
+                it,
+                java.nio.file.attribute.FileTime.fromMillis(now - (8L * day)),
+            )
+        }
+        try {
+            val removed = cleanupAbandonedBuildCache(
+                root.toFile(),
+                nowMillis = now,
+                maxAgeMillis = 7L * day,
+            )
+            org.junit.Assert.assertEquals(2, removed)
+            org.junit.Assert.assertFalse(java.nio.file.Files.exists(oldSource))
+            org.junit.Assert.assertFalse(java.nio.file.Files.exists(oldApk))
+            org.junit.Assert.assertTrue(java.nio.file.Files.exists(freshArtifact))
+            org.junit.Assert.assertTrue(java.nio.file.Files.exists(unrelated))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+
 }

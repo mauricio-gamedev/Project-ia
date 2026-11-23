@@ -12,6 +12,8 @@ Expected local output after a successful build:
 
     app/build/outputs/apk/debug/app-debug.apk
 
+The GitHub build adapter removes only its own abandoned source ZIP, artifact ZIP, and built-APK cache files older than seven days before a new build. Partial/unverified APK output is deleted on build failure; a checksum-verified APK is retained until the UI saves or discards it.
+
 The app package ID is io.github.astromg01.nucleo. `main` remains at 0.7.1-alpha / versionCode 11. PR #8 carries the 0.9.0-alpha / versionCode 16 chat-first creation candidate; its exact-head CI and device validation must be checked before distribution.
 
 ## Reference validation

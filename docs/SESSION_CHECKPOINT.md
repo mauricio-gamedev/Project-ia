@@ -28,6 +28,7 @@
 - The owner confirmed that the new chat-first creation flow works correctly and is easier to use.
 - Captured generated-project build run: [apks-teste Actions run #11](https://github.com/mauricio-gamedev/apks-teste/actions/runs/45211602064). Source upload and workflow setup passed; Gradle failed because generated `settings.gradle.kts` contained two `pluginManagement` blocks.
 - The scaffold now rejects duplicate `pluginManagement` blocks and has a regression test. The build UI can optionally perform up to two AI repair/rebuild cycles, only for completed Gradle failures, while preserving separate AI-source-sharing and GitHub-build consent.
+- The GitHub build adapter also prunes only its own abandoned source/archive/old APK cache files after seven days and removes unverified partial APKs on failure.
 - Resource audit found no safe-to-delete product feature directories. Unused direct lifecycle and Android instrumentation-test dependencies were removed; lifecycle-aware state collection and seven-day cleanup of abandoned private staging folders were added. User chat, memories, projects, Room data, icons, Shizuku, GitHub, and NúcleoLang remain intact.
 - The repair/rebuild automation and cleanup require exact-head CI validation and A06 retesting before being treated as verified.
 
