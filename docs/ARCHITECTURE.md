@@ -12,7 +12,7 @@
 
 ## Application layers
 
-- \`MainActivity\` and Compose UI: home, conversation, project library, tasks, memory, language playground, project factory, and settings.
+- \`MainActivity\` and Compose UI: home, conversation, project library, tasks, memory, language playground, settings, and contextual creation tools hosted inside chat.
 - \`NucleoApplication\` / \`AppContainer\`: application-wide dependency composition.
 - \`data/local\`: Room entities and DAOs for projects, task state, chat messages, and memories.
 - \`data/settings\`: provider profiles, fallback-route metadata, and URL validation.
@@ -28,20 +28,28 @@
 
 ## Chat request flow
 
-1. Persist the user message in Room.
-2. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
-3. Load a bounded chronological history of user/assistant turns.
-4. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
-5. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
-6. Route the request to a configured AI provider within its context budget.
-7. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
-8. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
+1. Select a persistent chat session and load only its bounded recent-message window.
+2. Detect explicit project-building requests using a conservative local intent parser. Matching requests open the existing Project Factory inside chat, prefill the profile/description, and do not contact the AI provider until the user accepts the existing generation consent.
+3. Persist ordinary chat messages in Room.
+4. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
+5. Load a bounded chronological history of user/assistant turns.
+6. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
+7. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
+8. Route the request to a configured AI provider within its context budget.
+9. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
+10. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
 
 ## GitHub authorization flow
 
 The app uses OAuth Device Flow. Pending device authorization data is stored encrypted so a flow can resume after the browser backgrounds the app or Android recreates the activity. Access and refresh tokens are stored encrypted through Android Keystore-backed storage. The requested scopes are broad (\`repo\`, \`workflow\`, and \`offline_access\`); UI repository selection is not a token-level permission boundary.
 
 ## Project generation and remote builds
+
+Project Factory parses AI output as a strict file manifest and retries malformed/incomplete manifests once. A shared source validator checks supported static structure and Android cross-file bindings; an AI repair is re-staged and validated before activation. Failed drafts may stay in isolated private staging for inspection, but a revision with unresolved findings cannot start a remote build. Static checks are not the compiler.
+
+The static AI code-review parser accepts a balanced root JSON report, including one wrapped by Markdown/text, and retries once only for malformed or schema-invalid output; provider/network failures are not repeated. Findings are limited to the reviewed staging paths.
+
+The GitHub connector verifies the actual account identity against /user rather than trusting the presence of an encrypted token alone. Expired/rejected credentials can be cleared without deleting the repository selections; repository access, permission, quota, and branch-protection errors have distinct messages. A remote Android build still requires explicit consent, a private repository, a successful Gradle workflow, and verified artifact/checksum evidence.
 
 Project Factory validates generated paths and content before staging/export. For supported Android scaffolds, a separate remote build workflow can run Gradle with JDK 17 and Android SDK 36 in a user-selected private GitHub repository. Source generation alone is never reported as a successful APK build; the remote workflow and artifact verification must succeed.
 

@@ -14,7 +14,35 @@ Current limits: 300 files, 512 KiB per file, 4 MiB per project, and 240 characte
 
 An optional remote GitHub Actions adapter is available for supported Android scaffolds. It requires OAuth configuration, a separately selected private build repository, write/Actions permissions, and explicit consent. No complete Android build toolchain runs inside the app on the phone.
 
+## Generation retry, validation, and repair boundaries
+
+- AI review responses whose findings all reference paths outside the staged allowlist are rejected and trigger the existing bounded format-repair retry.
+- The Android scaffold synchronizes selected common library imports with dependencies in valid Gradle scripts without replacing unrelated project configuration. This is not a universal dependency resolver; unrecognized third-party imports still require diagnostics and review.
+- Chat stores independent sessions in the existing local Room table, limits the rendered window, and keeps each session's summary separate. `/new`, `/clear`, `/delete`, `/chats`, and `/help` are local commands; auto-scroll-to-bottom is replaced by a manual control.
+- Static AI code review requires a valid root JSON report with a non-empty `summary` and a `findings` array. It can extract a balanced object from surrounding Markdown/text and respects braces inside JSON strings.
+- A malformed or schema-invalid review response gets one bounded retry with the parser's rejection reason. Provider/network errors are propagated without an extra review call; review findings remain restricted to the authorized staged paths.
+
+- The file-manifest parser rejects malformed JSON, non-string paths/content, empty payloads, duplicate paths, and oversized files before staging.
+- A malformed/incomplete manifest gets one bounded regeneration attempt with the parser's diagnostic. This retry does not repeat provider/network failures.
+- Before build, static preflight checks project path/size rules, source delimiters, JSON/XML syntax, Android Gradle configuration, launcher placeholders, and whether the manifest launcher resolves to an Activity present in the source tree.
+- One AI-assisted repair pass may propose changes to a structural draft or failed build. The result is revalidated, and an AI repair that was not attempted because of size limits is not offered as a new candidate.
+- A draft with unresolved structural findings may remain in private staging so the user can inspect and repair it, but remote APK compilation stays disabled until the current revision passes preflight.
+- Static checks do not compile or prove application behavior. Only a successful remote Gradle job plus artifact/signature/checksum verification counts as a built APK.
+
+## Bounded automatic build repair
+
+Android users may explicitly enable automatic repair/rebuild. The option requires the separate code-review consent because the staged source and sanitized Gradle diagnostics are sent to the configured AI provider. The remote-build consent remains independent and authorizes upload to the selected private GitHub repository and execution of its Gradle workflow.
+
+The orchestrator retries only after a completed GitHub Actions build reports a Gradle failure. Network, authentication, permission, and workflow-dispatch errors are surfaced without sending source for an unnecessary repair. At most two AI repair cycles are allowed. Each proposed revision is staged separately, checked with the Android scaffold and structural validator, and rebuilt remotely. The active original is retained until a repaired revision produces a verified APK. If retries are exhausted, the latest proposal remains available for manual review; it is never reported as compiled.
+
+The build screen presents the final relevant diagnostic lines rather than the beginning of a long log. A successful source proposal is not a successful build: the remote workflow, APK verification, and checksum checks must all pass.
+
 ## User flow
+
+Project Factory is launched from the main chat when the user explicitly asks to create an app/APK, website, Python project, or another supported project. The chat performs conservative local intent routing, then opens the existing factory with the request prefilled. The user still reviews the target profile and request and must explicitly consent before the configured provider receives the description. This entry point does not bypass validation, staging, export, code-review, or remote-build safeguards.
+
+When the user returns to the chat, the embedded factory remains mounted off-screen for that app session so staged files, previews, review proposals, and build diagnostics are not discarded by ordinary in-app navigation. A new request/profile resets the previous staging and associated build evidence before preparing the next draft. If GitHub Settings is opened from an active factory, keep the Chat/Factory composition mounted behind Settings; returning to chat restores the same draft. Android system Back follows the visible navigation layer: factory to chat, settings to the active factory when one is open, otherwise settings to home.
+
 
 1. **Clarify the goal:** identify platform, required behavior, constraints, expected artifacts, and acceptance criteria.
 2. **Select a profile:** prefer deterministic templates for common structure and AI for task-specific source.

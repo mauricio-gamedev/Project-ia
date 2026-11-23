@@ -121,6 +121,14 @@ class ProjectFactoryTest {
     }
 
     @Test
+    fun `rejects empty generated source files`() {
+        val error = assertThrows(ProjectDraftValidationException::class.java) {
+            factory.validate(draftOf("Main.kt", "  \n\t"))
+        }
+        assertTrue(error.message!!.contains("veio vazio"))
+    }
+
+    @Test
     fun `rejects an oversized individual file`() {
         val error = assertThrows(ProjectDraftValidationException::class.java) {
             factory.validate(
@@ -333,4 +341,40 @@ class ProjectFactoryTest {
             temp.deleteRecursively()
         }
     }
+    @Test
+    fun cleanupRemovesOnlyExpiredDirectChildStages() {
+        val root = java.nio.file.Files.createTempDirectory("nucleo-stage-cleanup")
+        val day = 24L * 60L * 60L * 1000L
+        val now = System.currentTimeMillis()
+        val expired = java.nio.file.Files.createDirectory(root.resolve("expired"))
+        java.nio.file.Files.write(expired.resolve("draft.kt"), byteArrayOf(1))
+        val fresh = java.nio.file.Files.createDirectory(root.resolve("fresh"))
+        java.nio.file.Files.write(fresh.resolve("draft.kt"), byteArrayOf(2))
+        val protected = java.nio.file.Files.createDirectory(root.resolve("protected"))
+        java.nio.file.Files.write(protected.resolve("draft.kt"), byteArrayOf(3))
+        java.nio.file.Files.setLastModifiedTime(
+            expired,
+            java.nio.file.attribute.FileTime.fromMillis(now - (8L * day)),
+        )
+        java.nio.file.Files.setLastModifiedTime(
+            protected,
+            java.nio.file.attribute.FileTime.fromMillis(now - (8L * day)),
+        )
+
+        try {
+            val removed = ProjectFactory().cleanupAbandonedStaging(
+                root.toFile(),
+                protectedStageIds = setOf("protected"),
+                nowMillis = now,
+                maxAgeMillis = 7L * day,
+            )
+            org.junit.Assert.assertEquals(1, removed)
+            org.junit.Assert.assertFalse(java.nio.file.Files.exists(expired))
+            org.junit.Assert.assertTrue(java.nio.file.Files.exists(fresh))
+            org.junit.Assert.assertTrue(java.nio.file.Files.exists(protected))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
 }

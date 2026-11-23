@@ -33,6 +33,43 @@ class ProjectCodeReviewServiceTest {
     }
 
     @Test
+    fun reviewParserExtractsBalancedJsonFromMarkdownAndQuotedBraces() {
+        val fence = "```"
+        val response = "Aqui está o relatório:\n" + fence + "json\n" +
+            """{"summary":"Brace { and } inside a string","findings":[]}""" +
+            "\n" + fence
+
+        val parsed = service.parseReviewResponse(response, setOf("index.html"), partial = false)
+
+        assertEquals("Brace { and } inside a string", parsed.summary)
+        assertTrue(parsed.findings.isEmpty())
+    }
+
+    @Test
+    fun reviewParserRejectsMissingFindingsArrayForBoundedRetry() {
+        try {
+            service.parseReviewResponse("""{"summary":"Incomplete contract"}""", setOf("index.html"), partial = false)
+            throw AssertionError("Expected schema rejection.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message!!.contains("findings"))
+        }
+    }
+
+    @Test
+    fun reviewParserRejectsReportsContainingOnlyUnauthorizedPaths() {
+        try {
+            service.parseReviewResponse(
+                """{"summary":"External path","findings":[{"severity":"error","path":"../../outside.kt","problem":"bad","recommendation":"fix"}]}""",
+                setOf("src/main.kt"),
+                partial = false,
+            )
+            throw AssertionError("Expected staged-path rejection.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message!!.contains("caminho presente"))
+        }
+    }
+
+    @Test
     fun repairParserRejectsAnyPathNotInTheStagingManifest() {
         val response = """{"summary":"bad","files":[{"path":"../../outside.txt","content":"bad"}]}"""
 

@@ -99,8 +99,8 @@ class ModelRouter(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: ProviderHttpException) {
-                // Some compatible providers reject JSON mode. Retry this route once without the
-                // optional parameter before deciding it has failed.
+                // Some compatible providers reject JSON mode. Retry once without the optional
+                // parameter, but classify the second failure—not the initial HTTP 400—if fallback fails.
                 if (error.statusCode == 400 && routeRequest.jsonObjectMode) {
                     try {
                         val compatibleResponse = OpenAiCompatibleProvider(route, key)
@@ -111,40 +111,27 @@ class ModelRouter(
                         throw cancelled
                     } catch (compatibilityError: Exception) {
                         lastFailure = compatibilityError
-                        val retryable = compatibilityError is IOException ||
-                            (compatibilityError is ProviderHttpException &&
-                                (compatibilityError.statusCode == 408 || compatibilityError.statusCode == 429 ||
-                                    compatibilityError.statusCode in 500..599))
-                        failures += ProviderRouteFailure(
-                            route.providerName,
-                            "a tentativa sem modo JSON também falhou",
-                            retryable = retryable,
-                        )
+                        val disposition = ProviderFailurePolicy.classify(compatibilityError)
+                        failures += ProviderRouteFailure(route.providerName, disposition.reason, disposition.retryable)
+                        providerPreferences.markCooldown(route.id, System.currentTimeMillis() + disposition.cooldownMillis)
+                        continue
                     }
                 }
                 lastFailure = error
-                failures += ProviderRouteFailure(
-                    route.providerName,
-                    "HTTP ${error.statusCode}",
-                    retryable = error.statusCode == 408 || error.statusCode == 429 || error.statusCode in 500..599,
-                )
-                val cooldownMillis = when {
-                    error.statusCode == 429 ->
-                        ((error.retryAfterSeconds ?: DEFAULT_QUOTA_COOLDOWN_SECONDS).coerceIn(1L, MAX_COOLDOWN_SECONDS)) * 1_000L
-                    error.statusCode == 401 || error.statusCode == 403 -> AUTH_COOLDOWN_MILLIS
-                    error.statusCode == 408 || error.statusCode in 500..599 -> TRANSIENT_COOLDOWN_MILLIS
-                    else -> ROUTE_CONFIGURATION_COOLDOWN_MILLIS
-                }
-                providerPreferences.markCooldown(route.id, System.currentTimeMillis() + cooldownMillis)
+                val disposition = ProviderFailurePolicy.classify(error)
+                failures += ProviderRouteFailure(route.providerName, disposition.reason, disposition.retryable)
+                providerPreferences.markCooldown(route.id, System.currentTimeMillis() + disposition.cooldownMillis)
             } catch (error: IOException) {
                 lastFailure = error
-                failures += ProviderRouteFailure(route.providerName, "falha de rede ou timeout", retryable = true)
-                providerPreferences.markCooldown(route.id, System.currentTimeMillis() + TRANSIENT_COOLDOWN_MILLIS)
+                val disposition = ProviderFailurePolicy.classify(error)
+                failures += ProviderRouteFailure(route.providerName, disposition.reason, disposition.retryable)
+                providerPreferences.markCooldown(route.id, System.currentTimeMillis() + disposition.cooldownMillis)
             } catch (error: Exception) {
                 lastFailure = error
                 // Keep the reason generic: provider bodies may contain private prompts or credentials.
-                failures += ProviderRouteFailure(route.providerName, "resposta inválida ou falha de compatibilidade")
-                providerPreferences.markCooldown(route.id, System.currentTimeMillis() + ROUTE_CONFIGURATION_COOLDOWN_MILLIS)
+                val disposition = ProviderFailurePolicy.classify(error)
+                failures += ProviderRouteFailure(route.providerName, disposition.reason, disposition.retryable)
+                providerPreferences.markCooldown(route.id, System.currentTimeMillis() + disposition.cooldownMillis)
             }
         }
 
@@ -158,11 +145,6 @@ class ModelRouter(
     }
 
     private companion object {
-        const val DEFAULT_QUOTA_COOLDOWN_SECONDS = 300L
-        const val MAX_COOLDOWN_SECONDS = 3_600L
-        const val AUTH_COOLDOWN_MILLIS = 15 * 60 * 1_000L
-        const val TRANSIENT_COOLDOWN_MILLIS = 45 * 1_000L
-        const val ROUTE_CONFIGURATION_COOLDOWN_MILLIS = 2 * 60 * 1_000L
         const val MAX_FAILURE_DETAILS = 4
     }
 }

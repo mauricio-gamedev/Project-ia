@@ -175,6 +175,14 @@ class GitHubConnector(
             )
         }
 
+    /** Validates the current OAuth session against GitHub and returns the authenticated login. */
+    suspend fun authenticatedUserLogin(accessToken: String): String = withContext(Dispatchers.IO) {
+        validateAccessToken(accessToken)
+        val user = JSONObject(apiGet("$API_BASE/user", accessToken))
+        user.optString("login").trim().takeIf { it.isNotBlank() }
+            ?: throw IOException("O GitHub respondeu sem identificar a conta autorizada.")
+    }
+
     suspend fun listRepositories(accessToken: String): List<GitHubRepository> =
         withContext(Dispatchers.IO) {
             validateAccessToken(accessToken)
@@ -370,7 +378,7 @@ class GitHubConnectorPreferences(context: Context) {
         repository, KEY_OWNER, KEY_REPOSITORY, KEY_PRIVATE, KEY_BRANCH, KEY_URL, KEY_DESCRIPTION, KEY_CAN_PUSH,
     )
 
-    /** Dedicated target for APK builds. Falls back to the chat repository until separately set. */
+    /** Dedicated target for APK builds. Never silently reuses the chat-context repository. */
     fun selectedBuildRepository(): GitHubRepository? = readRepository(
         KEY_BUILD_OWNER, KEY_BUILD_REPOSITORY, KEY_BUILD_PRIVATE, KEY_BUILD_BRANCH, KEY_BUILD_URL,
         KEY_BUILD_DESCRIPTION, KEY_BUILD_CAN_PUSH,
@@ -543,12 +551,21 @@ class GitHubOAuthSession(
         }
     }
 
+    /**
+     * Clear rejected/expired credentials while preserving the user's repository choices so a
+     * fresh Device Flow authorization can reconnect without forcing the selections to be made again.
+     */
     @Synchronized
-    fun disconnect() {
+    fun clearRejectedCredentials() {
         secretStore.removeApiKey(GITHUB_OAUTH_TOKEN_ID)
         secretStore.removeApiKey(GITHUB_OAUTH_REFRESH_TOKEN_ID)
         clearPendingAuthorization()
         preferences.edit().remove(KEY_ACCESS_EXPIRY).apply()
+    }
+
+    @Synchronized
+    fun disconnect() {
+        clearRejectedCredentials()
         connectorPreferences.clearSelectedRepository()
     }
 

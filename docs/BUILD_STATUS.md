@@ -6,20 +6,30 @@ The Android CI workflow at the repository's Android CI workflow file is the auth
 
 ## What CI checks
 
-The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact, calculates its checksum, and uploads the APK as a workflow artifact.
+The workflow runs on pull requests, pushes to the default branch, and manual dispatch. It configures JDK 17 and Android SDK 36, downloads the pinned Gradle distribution and verifies its SHA-256, runs unit tests, builds the debug APK, verifies the artifact and signing, calculates its checksum, and uploads the APK as a workflow artifact. The run summary uses `printf` so shell does not interpret the displayed commit and APK hash as commands.
 
 Expected local output after a successful build:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-The app package ID is io.github.astromg01.nucleo. The current development version is 0.7.1-alpha with versionCode 11.
+The GitHub build adapter removes only its own abandoned source ZIP, artifact ZIP, and built-APK cache files older than seven days before a new build. Partial/unverified APK output is deleted on build failure; a checksum-verified APK is retained until the UI saves or discards it.
+
+The app package ID is io.github.astromg01.nucleo. `main` remains at 0.7.1-alpha / versionCode 11. PR #8 carries the 0.9.0-alpha / versionCode 16 chat-first creation candidate; its exact-head CI and device validation must be checked before distribution.
 
 ## Reference validation
 
-The 0.7.1-alpha code path has passed the GitHub Actions unit-test/build job, APK verification, checksum generation, and artifact upload. See the Actions history for the exact commit and signing summary. Documentation commits may trigger additional CI runs; prefer the newest successful run matching the current branch or pull-request head over a historical result.
+The main release line remains 0.7.1-alpha / versionCode 11. PR #8 contains the current Project Factory generation, repair, AI code-review JSON recovery, GitHub-session, and build-diagnostics hardening. Check the live [PR #8](https://github.com/mauricio-gamedev/Project-ia/pull/8) and its newest check on the exact head SHA before treating these changes as released. CI verifies app compilation/tests and the app APK; it does not compile every source project created by Project Factory.
+
+## Current candidate
+
+The 0.9.0-alpha candidate routes explicit project-creation requests from chat into the embedded Project Factory. It preserves explicit provider and remote-build consent. Check the newest Actions run for the exact PR #8 head before treating this candidate as validated; previous green runs cover earlier commits only.
 
 ## What a green build means
 
 A successful CI run demonstrates that the tests and configured build/artifact checks passed on the runner. It does not prove every UI flow has been smoke-tested on every Android device, that generated projects are correct, or that the app is production-ready.
 
 Before distributing a build, install the exact APK on a device, verify the signing certificate is compatible with the installed app, open the app, and test the changed user flows.
+## Automatic Android build repair
+
+An opt-in repair setting can request up to two AI correction/rebuild cycles after a completed Gradle failure. It requires both existing permissions: source/diagnostic sharing with the AI provider and upload/build consent for the selected private GitHub repository. The app does not retry network or authorization failures as code defects. Each revised source tree is structurally validated before the next build, and the original remains available until a candidate passes the remote APK and checksum checks.
+

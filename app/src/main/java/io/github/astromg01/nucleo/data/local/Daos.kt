@@ -60,6 +60,9 @@ interface MemoryDao {
     @Query("SELECT * FROM memories WHERE kind = 'chat_summary' LIMIT 1")
     suspend fun chatSummary(): MemoryEntity?
 
+    @Query("SELECT * FROM memories WHERE id = 'chat-summary-' || :sessionId AND kind = 'chat_summary' LIMIT 1")
+    suspend fun chatSummaryForSession(sessionId: String): MemoryEntity?
+
     @Query("SELECT * FROM memories WHERE kind IN ('chat_fact', 'chat_preference') ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun latestChatFacts(limit: Int): List<MemoryEntity>
 
@@ -78,6 +81,35 @@ interface MemoryDao {
 
 @Dao
 interface ChatMessageDao {
+    @Query("""
+        SELECT * FROM chat_messages
+        WHERE sessionId = :sessionId
+          AND id IN (
+            SELECT id FROM chat_messages
+            WHERE sessionId = :sessionId
+            ORDER BY createdAt DESC, rowid DESC
+            LIMIT :limit
+          )
+        ORDER BY createdAt ASC, rowid ASC
+    """)
+    fun observeRecentSession(sessionId: String, limit: Int): Flow<List<ChatMessageEntity>>
+
+    @Query("""
+        SELECT chat_messages.sessionId AS sessionId,
+               COALESCE((
+                   SELECT firstMessage.content FROM chat_messages AS firstMessage
+                   WHERE firstMessage.sessionId = chat_messages.sessionId AND firstMessage.role = 'user'
+                   ORDER BY firstMessage.createdAt ASC, firstMessage.rowid ASC
+                   LIMIT 1
+               ), 'Nova conversa') AS title,
+               MAX(chat_messages.createdAt) AS updatedAt,
+               COUNT(*) AS messageCount
+        FROM chat_messages
+        GROUP BY chat_messages.sessionId
+        ORDER BY MAX(chat_messages.createdAt) DESC
+    """)
+    fun observeSessions(): Flow<List<ChatSessionSummary>>
+
     @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY createdAt ASC, rowid ASC")
     fun observeSession(sessionId: String): Flow<List<ChatMessageEntity>>
 

@@ -25,12 +25,22 @@ class ProviderPreferences(context: Context) {
     )
 
     fun save(configuration: ProviderConfiguration) {
-        preferences.edit()
-            .putString(KEY_PROVIDER_NAME, configuration.providerName.trim().ifEmpty { "OpenAI-compatible" })
-            .putString(KEY_BASE_URL, configuration.baseUrl.trim().trimEnd('/'))
-            .putString(KEY_MODEL, configuration.modelName.trim())
-            .putBoolean(KEY_ENABLED, configuration.enabled)
-            .apply()
+        val previous = load()
+        val normalized = configuration.copy(
+            providerName = configuration.providerName.trim().ifEmpty { "OpenAI-compatible" },
+            baseUrl = configuration.baseUrl.trim().trimEnd('/'),
+            modelName = configuration.modelName.trim(),
+            id = ProviderConfiguration.DEFAULT_PROVIDER_ID,
+        )
+        val editor = preferences.edit()
+            .putString(KEY_PROVIDER_NAME, normalized.providerName)
+            .putString(KEY_BASE_URL, normalized.baseUrl)
+            .putString(KEY_MODEL, normalized.modelName)
+            .putBoolean(KEY_ENABLED, normalized.enabled)
+        if (ProviderConfigurationChangePolicy.shouldClearCooldown(previous, normalized)) {
+            editor.remove(cooldownKey(ProviderConfiguration.DEFAULT_PROVIDER_ID))
+        }
+        editor.apply()
     }
 
     /** Alternative routes, ordered by the priority chosen in Settings. The legacy route remains primary. */
@@ -74,24 +84,46 @@ class ProviderPreferences(context: Context) {
         require(profiles.map { it.id }.distinct().size == profiles.size) {
             "Não é permitido cadastrar duas rotas com o mesmo identificador."
         }
+        val previousById = loadFallbackProfiles().associateBy { it.id }
+        val normalized = profiles.map { profile ->
+            profile.copy(
+                providerName = profile.providerName.trim().ifBlank { "OpenAI-compatible" },
+                baseUrl = profile.baseUrl.trim().trimEnd('/'),
+                modelName = profile.modelName.trim(),
+                priority = profile.priority.coerceIn(0, 10_000),
+                qualityTier = profile.qualityTier.coerceIn(
+                    ProviderConfiguration.MIN_QUALITY_TIER,
+                    ProviderConfiguration.MAX_QUALITY_TIER,
+                ),
+                contextWindowChars = profile.contextWindowChars.coerceIn(
+                    ProviderConfiguration.MIN_CONTEXT_CHARS,
+                    ProviderConfiguration.MAX_CONTEXT_CHARS,
+                ),
+            )
+        }
+        val normalizedById = normalized.associateBy { it.id }
+        normalized.forEach { updated ->
+            val previous = previousById[updated.id]
+            // A stable route ID can survive a model/endpoint edit. Never carry the old route's
+            // cooldown into a different destination, and clear stale state when an ID is reused.
+            if (previous == null || ProviderConfigurationChangePolicy.shouldClearCooldown(previous, updated)) {
+                clearCooldown(updated.id)
+            }
+        }
+        previousById.keys.filterNot { it in normalizedById }.forEach(::clearCooldown)
+
         val json = JSONArray()
-        profiles.forEach { profile ->
+        normalized.forEach { profile ->
             json.put(
                 JSONObject()
                     .put("id", profile.id)
-                    .put("providerName", profile.providerName.trim().ifBlank { "OpenAI-compatible" })
-                    .put("baseUrl", profile.baseUrl.trim().trimEnd('/'))
-                    .put("modelName", profile.modelName.trim())
+                    .put("providerName", profile.providerName)
+                    .put("baseUrl", profile.baseUrl)
+                    .put("modelName", profile.modelName)
                     .put("enabled", profile.enabled)
-                    .put("priority", profile.priority.coerceIn(0, 10_000))
-                    .put("qualityTier", profile.qualityTier.coerceIn(
-                        ProviderConfiguration.MIN_QUALITY_TIER,
-                        ProviderConfiguration.MAX_QUALITY_TIER,
-                    ))
-                    .put("contextWindowChars", profile.contextWindowChars.coerceIn(
-                        ProviderConfiguration.MIN_CONTEXT_CHARS,
-                        ProviderConfiguration.MAX_CONTEXT_CHARS,
-                    )),
+                    .put("priority", profile.priority)
+                    .put("qualityTier", profile.qualityTier)
+                    .put("contextWindowChars", profile.contextWindowChars),
             )
         }
         preferences.edit().putString(KEY_FALLBACK_PROFILES, json.toString()).apply()

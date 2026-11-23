@@ -27,6 +27,8 @@ These scopes are broad. A repository selection in the Núcleo AI UI limits the o
 
 Access and refresh tokens are encrypted using Android Keystore-backed storage. When the user returns from the browser, the app checks the stored session and refreshes the repository list. Pending Device Flow state is also stored encrypted so the app can resume polling if Android backgrounds or recreates the app. Transient polling errors can be retried; an expired or rejected code requires a new authorization attempt.
 
+The connector now verifies the actual authenticated account through GitHub's /user endpoint before describing the session as validated. A saved token alone is shown as an unverified credential, not proof that repository access works. If GitHub rejects the session, the app clears only the rejected access/refresh credentials while preserving the user's chat/build repository choices, allowing a new Device Flow to start without stale-token interference. Temporary network or repository-listing failures are reported separately from an expired/revoked session.
+
 If GitHub shows the OAuth App as authorized but Núcleo AI is not connected, open the connector settings and start a new Device Flow authorization. A browser approval alone cannot restore a device code that has already expired.
 
 ## Repository roles in the app

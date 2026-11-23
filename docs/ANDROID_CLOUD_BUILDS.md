@@ -20,6 +20,10 @@ The connector currently uses the broad OAuth scopes \`repo\`, \`workflow\`, and 
 
 The Núcleo AI build adapter installs its dedicated workflow file in the selected build repository, then uploads the project to a build branch and triggers the workflow. It refuses to overwrite an existing workflow file that appears unrelated to Núcleo AI. The build logs and generated branch remain reviewable in the user's repository.
 
+Project Factory runs structural preflight against the current staged revision before enabling the build action. If a manifest is malformed, it asks for one regenerated manifest; if structural findings remain, it can propose one AI-assisted repair and rechecks the candidate before activation. A static-clean candidate is still uncompiled until GitHub Actions reports success.
+
+GitHub failures are classified separately: expired/revoked session, inaccessible private repository, missing Contents/Workflows permissions, API quota, and branch-protection/update-policy rejection. The connector does not bypass branch rules. Build diagnostics are size-limited and redacted before display; sending source and diagnostics to the AI provider requires explicit repair consent.
+
 Generated source and Gradle scripts are untrusted. Review the source before authorizing a build. A successful build means the configured workflow completed and its post-build artifact checks passed; it does not guarantee application correctness, runtime stability, performance, or Play Store readiness.
 
 ## Outputs and signing

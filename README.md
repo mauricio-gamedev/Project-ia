@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/mauricio-gamedev/Project-ia/actions/workflows/android-ci.yml"><img alt="Android CI" src="https://github.com/mauricio-gamedev/Project-ia/actions/workflows/android-ci.yml/badge.svg?branch=main"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.7.1--alpha-orange">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.9.0--alpha-orange">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Android-green">
   <img alt="Language" src="https://img.shields.io/badge/language-Kotlin-purple">
   <img alt="License" src="https://img.shields.io/badge/license-All%20rights%20reserved-lightgrey">
@@ -19,11 +19,11 @@ Núcleo AI is a source-visible, proprietary Android application designed to brin
 ## Highlights
 
 - **Context-aware chat:** persistent conversation history, recent-turn continuity, a durable conversation summary, and locally stored facts/preferences that the user explicitly asks the app to remember.
-- **Creator workspace:** generate drafts for video scripts, social posts, livestream descriptions, content ideas, editorial calendars, and visual prompts; copy results or export Markdown.
+- **Chat-first creation:** use the conversation for ordinary assistance, content creation, and explicit project-building requests; the chat opens the relevant creation workflow without a separate creator mode.
 - **Configurable AI providers:** OpenAI-compatible chat-completions endpoints, separately encrypted credentials, alternative routes, quota-aware fallback, cooldowns, and context-budget handoff.
 - **GitHub OAuth Device Flow:** authorize without pasting a personal access token into the app; store access/refresh tokens and pending device authorization data using Android Keystore-backed encryption.
 - **Repository context with consent:** select a repository for optional chat context. Source snippets are sent to the configured AI provider only when the user enables this feature.
-- **Project Factory:** generate and validate project files in private staging, review content, export source files, and request a remote Android debug build after explicit consent.
+- **Project Factory in chat:** natural-language requests for Android apps/APKs, websites, Python projects, and generic projects open the existing generator prefilled with the request. Generated files remain in private staging for review, export, or separately authorized remote Android builds.
 - **Remote APK builds:** use a separately selected private GitHub repository and GitHub Actions to compile, verify, and retrieve a debug APK with a SHA-256 checksum.
 - **AutoRouter and code review:** configure alternative model routes and request static AI-assisted review/repair proposals without executing generated code.
 - **NúcleoLang 0.2 alpha:** a small Kotlin-based interpreter and in-app playground with execution limits and no built-in shell, network, or filesystem access.

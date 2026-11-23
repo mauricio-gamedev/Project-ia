@@ -2,6 +2,79 @@
 
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
+
+## 0.9.0-alpha — 2026-11-23
+
+### Chat-first creation workflow
+- Replace the separate Chat / Creator mode toggle with contextual chat tools for content and project creation.
+- Route explicit Android app/APK, website, Python, and generic project requests from the conversation into the existing Project Factory.
+- Prefill the Project Factory description and profile from the user's request; keep provider submission behind the existing consent control.
+- Embed the Project Factory in the conversation with a return-to-chat action, preserving the existing staging, validation, source export, code review, and cloud-build safeguards.
+- Remove the separate Project Factory entry from the home screen; project creation now starts from the chat.
+- Keep the embedded Project Factory composed off-screen after returning to chat, preserving staged files, review state, and build diagnostics during normal in-app navigation.
+- Clear stale staging/build evidence when a different project request/profile is opened from chat, and add Android system-back support to return to the conversation.
+- Keep the active chat/factory composition mounted behind GitHub Settings while a project draft is open; returning from Settings restores the same in-progress creation flow.
+- Add intent-routing regression tests for supported project profiles and non-project discussion/content requests.
+- Bump to versionCode 16; preserve the application ID and stable signing identity.
+
+### Project Factory build reliability and resource cleanup
+- Reject Android Gradle settings with duplicate `pluginManagement` blocks before remote compilation.
+- Add opt-in automatic AI repair and rebuild, capped at two repair cycles and limited to completed Gradle failures.
+- Keep provider source-sharing consent separate from remote GitHub build consent; preserve the original staged project until a corrected revision produces a verified APK.
+- Retry malformed correction JSON once, validate every candidate before rebuilding, and show the final Gradle diagnostic lines in the UI.
+- Remove unused lifecycle and Android instrumentation-test dependencies that had no corresponding app imports or `androidTest` sources.
+- Prune abandoned adapter source/archive/APK cache files older than seven days, and delete unverified partial APK files after failed downloads.
+- Collect Room-backed screen state only while the app is active and prune only abandoned private staging directories older than seven days.
+
+## 0.8.3-alpha — 2026-10-28
+
+### Chat stability and conversation management
+- Add persistent independent chat sessions, a conversation selector, and locally parsed `/new`, `/clear`, `/delete`, `/chats`, and `/help` commands with Portuguese aliases.
+- Bound rendered chat history to recent messages and reuse Room flows across recompositions to reduce unnecessary subscriptions.
+- Remove automatic scroll-to-bottom on each message-count change and add an explicit jump-to-latest control.
+- Keep each session's durable summary separate; clearing/deleting one conversation preserves other sessions and general memories.
+
+### Provider and project compatibility
+- Reuse a shared HTTP client and normalize string or text-block responses from OpenAI-compatible providers.
+- Classify the actual second-request failure when JSON mode is rejected, avoiding a stale cooldown based on the initial HTTP 400.
+- Clear fallback-route cooldowns when an endpoint/model changes or the route is removed.
+- Synchronize selected common Android imports with Gradle declarations for Navigation Compose, Lifecycle, Coroutines, and OkHttp while preserving valid custom build scripts.
+- Reject AI review reports whose findings all point outside the authorized staging snapshot.
+- Bump to versionCode 15; application ID and stable signing remain unchanged.
+- Fix the Android CI summary so commit and APK SHA-256 values are printed literally rather than interpreted as shell commands.
+
+## 0.8.2-alpha — 2026-10-28
+
+### AI code-review response recovery
+- Retry code review once when the model returns malformed JSON or a report that violates the required summary/findings contract; provider/network failures are not blindly repeated.
+- Safely extract a balanced JSON object from a response wrapped in Markdown or explanatory text, while respecting braces inside quoted strings.
+- Keep finding paths restricted to the reviewed staging snapshot and bound response parsing to a safe size.
+- Bump to versionCode 14 for an install-over update, preserving the application ID and stable signing configuration.
+
+## 0.8.1-alpha — 2026-10-28
+
+### Chat readability and provider recovery
+- Expanded assistant responses, adjusted typography and spacing, and compacted the chat status banner.
+- Added selectable message text, one-tap copy controls, and safe Markdown formatting for headings, lists, emphasis, and code.
+- Added a persisted OLED Black theme with high-contrast accents and matching Android system bars.
+- Restored the established provider request timeout behavior and clear stale primary-route cooldowns when model, endpoint, provider settings, or API key changes.
+- Added a manual AutoRouter action to clear temporary cooldowns across configured routes.
+
+### Project Factory generation and validation
+- Escape closing braces in the Android Gradle `plugins`, `android`, and `dependencies` validation regexes to prevent an Android-runtime pattern syntax error; add a Kotlin DSL retention regression test.
+- Retry a malformed or incomplete AI file manifest once with the parser's exact rejection reason; provider/network failures are not blindly repeated.
+- Validate non-empty file payloads, unique paths, source delimiters, JSON/XML structure, Android Gradle configuration, launcher placeholders, and Manifest-to-Activity consistency before a project can be built.
+- Make XML validation compatible with Android's XML parser API surface while rejecting DTD/entity declarations and resolving external entities safely.
+- Re-run the Android scaffold and structural checks after AI-assisted repair. Do not create a repair candidate when the size limits prevent the repair request from running.
+- Keep structural errors visible in the Project Factory UI and disable remote builds until the current staged source passes preflight. A clean preflight is not a substitute for successful Gradle compilation.
+
+### GitHub connector and cloud-build recovery
+- Verify the authenticated GitHub account through the /user endpoint rather than equating a stored token with a connected session.
+- On expired/revoked OAuth credentials, clear only the rejected credentials and preserve selected chat/build repositories so a new Device Flow authorization can resume.
+- Distinguish authentication failures from private-repository access, write/workflow permission, API quota, and branch-protection failures; do not bypass repository protections.
+- Capture bounded Gradle/compiler diagnostics, retain the end of the logs where build errors usually appear, and redact common credentials before presenting or sending diagnostics for explicitly consented AI repair.
+- Synchronize staging, repair candidates, validation results, prior APK artifacts, build diagnostics, and GitHub status so a new source revision does not inherit stale build evidence.
+
 ## 0.7.1-alpha — 2026-10-28
 
 ### GitHub OAuth reliability
