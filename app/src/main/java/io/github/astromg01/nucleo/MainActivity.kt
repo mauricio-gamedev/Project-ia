@@ -342,7 +342,10 @@ private fun NucleoShell(
                     sending = chatSending,
                     summaryMutex = chatSummaryMutex,
                     onSendingChange = { chatSending = it },
-                    onOpenSettings = { screen = AppScreen.SETTINGS },
+                    onOpenSettings = {
+                        chatProjectFactoryOpen = false
+                        screen = AppScreen.SETTINGS
+                    },
                     projectFactoryOpen = chatProjectFactoryOpen,
                     onProjectFactoryOpenChange = { chatProjectFactoryOpen = it },
                 )
