@@ -3,6 +3,17 @@
 All notable project changes are documented here. Dates use ISO-style calendar dates.
 
 
+## 0.9.0-alpha — 2026-11-23
+
+### Chat-first creation workflow
+- Replace the separate Chat / Creator mode toggle with contextual chat tools for content and project creation.
+- Route explicit Android app/APK, website, Python, and generic project requests from the conversation into the existing Project Factory.
+- Prefill the Project Factory description and profile from the user's request; keep provider submission behind the existing consent control.
+- Embed the Project Factory in the conversation with a return-to-chat action, preserving the existing staging, validation, source export, code review, and cloud-build safeguards.
+- Remove the separate Project Factory entry from the home screen; project creation now starts from the chat.
+- Add intent-routing regression tests for supported project profiles and non-project discussion/content requests.
+- Bump to versionCode 16; preserve the application ID and stable signing identity.
+
 ## 0.8.3-alpha — 2026-10-28
 
 ### Chat stability and conversation management
