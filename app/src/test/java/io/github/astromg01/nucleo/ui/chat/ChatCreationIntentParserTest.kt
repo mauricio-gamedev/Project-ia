@@ -21,6 +21,10 @@ class ChatCreationIntentParserTest {
             ChatCreationIntentParser.parse("Me ajude a criar um app para anotações")?.profile,
         )
         assertEquals(
+            ProjectProfile.ANDROID_APP,
+            ChatCreationIntentParser.parse("Crie um app Android com backend Python")?.profile,
+        )
+        assertEquals(
             ProjectProfile.WEB_APP,
             ChatCreationIntentParser.parse("Preciso de um site para minha comunidade")?.profile,
         )
