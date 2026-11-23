@@ -31,6 +31,9 @@ An optional remote GitHub Actions adapter is available for supported Android sca
 
 ## User flow
 
+Project Factory is launched from the main chat when the user explicitly asks to create an app/APK, website, Python project, or another supported project. The chat performs conservative local intent routing, then opens the existing factory with the request prefilled. The user still reviews the target profile and request and must explicitly consent before the configured provider receives the description. This entry point does not bypass validation, staging, export, code-review, or remote-build safeguards.
+
+
 1. **Clarify the goal:** identify platform, required behavior, constraints, expected artifacts, and acceptance criteria.
 2. **Select a profile:** prefer deterministic templates for common structure and AI for task-specific source.
 3. **Generate in private staging:** never overwrite a user folder directly while generating.
