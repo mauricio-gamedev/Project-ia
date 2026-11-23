@@ -1,10 +1,10 @@
 # Session Checkpoint — Núcleo AI
 
-**Last verified:** 2026-10-28 (Manaus local date; GitHub Actions timestamps are UTC) (Manaus local date; GitHub Actions timestamps are UTC)  
+**Last updated:** 2026-11-23  
 **Current main release:** `0.7.1-alpha` (`versionCode 11`)  
-**Consolidated candidate in PR #8:** `0.8.3-alpha` (`versionCode 15`)  
+**Active PR #8 candidate:** `0.9.0-alpha` (`versionCode 16`)  
 **Default branch:** `main`  
-**Handoff status:** The owner is testing candidate `0.8.3-alpha` (`versionCode 15`) on their Android phone and plans to report results next session. Start from the owner's actual observations; do not restart implementation blindly or ask them to repeat supplied context. Full Android CI run [#40792610317](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40792610317) passed on tested candidate commit `5f5f05b68fad5f9ab43147dd5fe4dcf491eb7cb4`, including unit tests, APK build, stable-signing verification, checksum, and artifact upload. PR #8 remains open and `main` is untouched.
+**Handoff status:** Chat-first creation has been implemented on PR #8. Natural-language Android/APK, website, Python, and generic project requests now open the existing Project Factory inside the chat with request and profile prefilled. Content creation remains a contextual chat tool. Provider submission and remote builds retain their separate explicit consent. Verify CI against the exact latest head and complete on-device smoke testing before distributing this candidate.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
@@ -15,13 +15,24 @@
 - Latest merged consolidation: [PR #4](https://github.com/mauricio-gamedev/Project-ia/pull/4), merged into `main`.
 - PRs #1 and #2 were closed as superseded. Their intended feature work is included through the consolidation commit; do not reopen or repeat them without checking the live diff.
 - Open PRs currently include [#8](https://github.com/mauricio-gamedev/Project-ia/pull/8) (stability candidate) and [#6](https://github.com/mauricio-gamedev/Project-ia/pull/6) (unrelated copyright update). PR #7 was closed as superseded by PR #8.
-- Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.8.3-alpha`, `versionCode 15` so it can upgrade earlier alpha installs.
+- Android application ID remains `io.github.astromg01.nucleo`. `main` is at version `0.7.1-alpha`, `versionCode 11`; the PR #8 candidate is `0.9.0-alpha`, `versionCode 16`. Preserve the established stable signing identity for install-over updates.
 - The owner previously confirmed a generated test project's APK compiled, installed, and launched on-device after the original Android regex correction. The owner is now testing candidate `0.8.3-alpha` on the A06; conversation/session commands, AI review recovery, provider switching, and generated dependency synchronization need device-level outcomes reported.
 - The original Android Gradle regex fix and regression test are in commit `2cb10abf3567c65011d993dedb2932f3c983a42d`. Latest full CI run [#40792610317](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40792610317) passed on tested candidate commit `5f5f05b68fad5f9ab43147dd5fe4dcf491eb7cb4`, including `:app:testDebugUnitTest`, `:app:assembleDebug`, stable-keystore signature verification, checksum generation, and artifact upload. Artifact: `nucleo-ai-debug-apk`, ID `12862402251`, size `18,837,045` bytes, archive digest `sha256:c9c3564545bfeee4b66274a2483d70d1bc8d44296a8dc021c05d938dc269de72`, expires `2026-11-12T00:14:29Z`. APK file SHA-256: `1490758cd2ada09dea77cf41407bf77fab7bdfa6e382269160f63b1d88a99eba`. Stable signer verified. Download from the Actions run page and refresh the live branch state before acting.
 - Stable signing was configured for that build. Preserve the same keystore, alias, application ID, and increasing versionCode for future install-over updates.
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
 
 ## Current consolidated implementation — PR #8
+
+### Chat-first creation — 0.9.0-alpha / versionCode 16
+- Remove the separate Chat / Modo Criador toggle. The default chat remains the primary interface; content creation is exposed as a contextual tool.
+- Add a local, conservative `ChatCreationIntentParser`. Explicit requests such as “crie um APK”, “crie um site”, “gere um projeto Python”, or “crie um bot” route to Android, Web, Python, or Generic profiles.
+- Distinguish content requests from project requests. Creator-generated prompts and requests such as “crie um post para divulgar meu app” remain normal chat/content work.
+- Open the existing Project Factory inside the conversation, prefill the original request and inferred profile, and provide an explicit return-to-chat action.
+- Keep provider submission consent, isolated staging, structural validation/repair, code-review consent, source export, GitHub repository checks, and separate remote-build consent unchanged.
+- Remove the separate Project Factory entry from the home screen; the chat is the entry point for project creation.
+- Added unit tests for Android/APK, Web, Python, Generic, content, and discussion routing.
+- Version bump preserves application ID `io.github.astromg01.nucleo` and the established stable signing configuration.
+
 
 - PR: [#8 Fix Project Factory generation and GitHub build synchronization](https://github.com/mauricio-gamedev/Project-ia/pull/8).
 - Source candidate: `0.8.3-alpha` / `versionCode 15`; application ID and stable signing configuration remain unchanged.
@@ -38,15 +49,13 @@
 
 ## Resume here — next session
 
-The owner is testing the current APK and will report what happened. Start from those actual results rather than re-asking for supplied context or implementing speculative changes.
+The chat-first creation workflow is now implemented on PR #8. Before adding more scope, validate the exact candidate on CI and on the owner's Android device.
 
-1. Refresh live GitHub state: branch `fix/project-factory-generation-github-sync`, PR #8, `main`, newest Actions run for the current head, and matching artifact/signing status. The checkpoint is a handoff, not a replacement for live state.
-2. Use the owner's report as the first priority. Map each result to [SESSION_FLOW.md](SESSION_FLOW.md); do not ask them to repeat test outcomes already present in the conversation.
-3. For each failure, capture expected vs actual, reproduce the exact path, trace its call sites, fix the root cause in a focused commit, and add a regression test. Do not redesign unrelated features or optimize aggressively.
-4. Run relevant tests and full Android CI on the exact new head; verify stable signing, checksum and artifact upload before asking for a new install.
-5. Keep changes on PR #8. Do not touch `main`, replace signing, change the package ID, or bypass the active ruleset. Device behavior remains unverified until the owner reports it.
-
-**Last fully validated candidate state:** `main` = `773ee754c88d9555e3f9f63b6527d10ae1c8e2c4`; tested candidate = `5f5f05b68fad5f9ab43147dd5fe4dcf491eb7cb4`; latest full successful CI = [#40792610317](https://github.com/mauricio-gamedev/Project-ia/actions/runs/40792610317); artifact ID = `12862402251`; candidate = `0.8.3-alpha` / `versionCode 15`. Checkpoint-only edits do not change app/workflow sources; refresh live branch and Actions state on resume.
+1. Refresh live GitHub state: branch `fix/project-factory-generation-github-sync`, PR #8, `main`, newest Actions run for the exact current head, artifact, checksum, and signing mode.
+2. Confirm the intent parser routes Android/APK, website, Python, and generic project requests to the embedded factory, while normal chat, code analysis, and content creation stay in chat.
+3. Smoke-test the embedded flow on-device: enter a natural-language build request, verify prefilled profile/description, verify provider consent is unchecked, generate a draft, preview/validate/export it, and confirm return-to-chat works.
+4. For Android, verify the separate remote-build consent, private build repository checks, workflow success, APK signature/checksum, and install-over compatibility. Source generation alone is not a build.
+5. Fix reported regressions with focused tests, rerun full CI on the exact new head, and update this checkpoint with the resulting run/artifact. Keep changes on PR #8; do not touch `main`, replace signing, change the package ID, or bypass repository protections.
 
 ## Repository presentation already landed
 
