@@ -306,7 +306,7 @@ private fun NucleoShell(
                     }
                 },
                 actions = {
-                    if (!(screen == AppScreen.CHAT && chatProjectFactoryOpen)) {
+                    if (!chatProjectFactoryOpen) {
                         IconButton(onClick = { screen = AppScreen.SETTINGS }) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Configurações")
                         }
