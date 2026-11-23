@@ -125,7 +125,7 @@ private data class TimelineEntry(
 )
 
 private enum class AppScreen(val label: String) {
-    HOME("Início"), CHAT("Conversa"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), SETTINGS("Configurações")
+    HOME("Início"), CHAT("Conversa"), FACTORY("Criar projeto"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), SETTINGS("Configurações")
 }
 
 class MainActivity : ComponentActivity() {
@@ -178,6 +178,10 @@ private fun NucleoShell(
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
     var chatProjectFactoryOpen by rememberSaveable { mutableStateOf(false) }
     var chatSending by remember { mutableStateOf(false) }
+
+    LaunchedEffect(screen) {
+        if (screen == AppScreen.FACTORY) screen = AppScreen.CHAT
+    }
 
     BackHandler(
         enabled = screen == AppScreen.SETTINGS || screen == AppScreen.LANG ||
@@ -371,7 +375,7 @@ private fun NucleoShell(
                     recentActivities = recentActivities,
                     onNavigate = { screen = it },
                 )
-                AppScreen.CHAT -> Unit
+                AppScreen.CHAT, AppScreen.FACTORY -> Unit
                 AppScreen.PROJECTS -> ProjectsScreen(projects, onAdd = { folderPicker.launch(null) })
                 AppScreen.TASKS -> TasksScreen(tasks, projects, onCreate = { title, prompt, projectId, consentToShareCode ->
                     scope.launch {
