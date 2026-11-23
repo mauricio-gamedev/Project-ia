@@ -13,6 +13,7 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 - Remove the separate Project Factory entry from the home screen; project creation now starts from the chat.
 - Keep the embedded Project Factory composed off-screen after returning to chat, preserving staged files, review state, and build diagnostics during normal in-app navigation.
 - Clear stale staging/build evidence when a different project request/profile is opened from chat, and add Android system-back support to return to the conversation.
+- Keep the active chat/factory composition mounted behind GitHub Settings while a project draft is open; returning from Settings restores the same in-progress creation flow.
 - Add intent-routing regression tests for supported project profiles and non-project discussion/content requests.
 - Bump to versionCode 16; preserve the application ID and stable signing identity.
 
