@@ -25,8 +25,8 @@ android {
         applicationId = "io.github.astromg01.nucleo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.8.3-alpha"
+        versionCode = 16
+        versionName = "0.9.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
