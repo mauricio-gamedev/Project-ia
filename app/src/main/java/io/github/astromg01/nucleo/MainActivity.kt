@@ -178,6 +178,17 @@ private fun NucleoShell(
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
     var chatProjectFactoryOpen by rememberSaveable { mutableStateOf(false) }
     var chatSending by remember { mutableStateOf(false) }
+
+    BackHandler(
+        enabled = screen == AppScreen.SETTINGS || screen == AppScreen.LANG ||
+            (screen == AppScreen.CHAT && chatProjectFactoryOpen),
+    ) {
+        when {
+            screen == AppScreen.CHAT && chatProjectFactoryOpen -> chatProjectFactoryOpen = false
+            screen == AppScreen.SETTINGS && chatProjectFactoryOpen -> screen = AppScreen.CHAT
+            screen == AppScreen.SETTINGS || screen == AppScreen.LANG -> screen = AppScreen.HOME
+        }
+    }
     val chatSummaryMutex = remember { kotlinx.coroutines.sync.Mutex() }
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
     val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
@@ -294,10 +305,9 @@ private fun NucleoShell(
                     } else if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG) {
                         IconButton(
                             onClick = {
-                                screen = if (screen == AppScreen.SETTINGS && chatProjectFactoryOpen) {
-                                    AppScreen.CHAT
-                                } else {
-                                    AppScreen.HOME
+                                when {
+                                    screen == AppScreen.SETTINGS && chatProjectFactoryOpen -> screen = AppScreen.CHAT
+                                    else -> screen = AppScreen.HOME
                                 }
                             },
                         ) {
@@ -346,7 +356,6 @@ private fun NucleoShell(
                     onOpenSettings = { screen = AppScreen.SETTINGS },
                     projectFactoryOpen = chatProjectFactoryOpen,
                     onProjectFactoryOpenChange = { chatProjectFactoryOpen = it },
-                    isActiveScreen = screen == AppScreen.CHAT,
                     modifier = Modifier.fillMaxSize().graphicsLayer {
                         alpha = if (screen == AppScreen.CHAT) 1f else 0f
                         translationX = if (screen == AppScreen.CHAT) 0f else -size.width
@@ -540,7 +549,6 @@ private fun ChatScreen(
     onOpenSettings: () -> Unit,
     projectFactoryOpen: Boolean,
     onProjectFactoryOpenChange: (Boolean) -> Unit,
-    isActiveScreen: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -589,10 +597,6 @@ private fun ChatScreen(
     var conversationMenuExpanded by remember { mutableStateOf(false) }
     var chatMaintenance by remember { mutableStateOf(false) }
     var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
-
-    BackHandler(enabled = isActiveScreen && projectFactoryOpen) {
-        onProjectFactoryOpenChange(false)
-    }
 
     val markdownExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri == null) {
