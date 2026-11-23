@@ -125,12 +125,7 @@ fun ProjectFactoryScreen(
     var githubSyncTick by remember { mutableStateOf(0) }
     var syncingGitHub by remember { mutableStateOf(false) }
 
-    var projectName by remember(initialPrompt) {
-        mutableStateOf(
-            initialPrompt.lineSequence().firstOrNull()?.trim()?.take(ProjectFactory.MAX_NAME_CHARS)
-                ?.ifBlank { "Meu projeto" } ?: "Meu projeto",
-        )
-    }
+    var projectName by remember(initialPrompt) { mutableStateOf("Meu projeto") }
     var description by remember(initialPrompt) {
         mutableStateOf(initialPrompt.take(ProjectFactory.MAX_DESCRIPTION_CHARS))
     }
@@ -170,6 +165,7 @@ fun ProjectFactoryScreen(
     var repairCandidateValidationIssues by remember { mutableStateOf<List<String>>(emptyList()) }
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
+    var lastFactoryInput by remember { mutableStateOf(initialPrompt to initialProfile) }
 
     val projectInteractionLocked = generating || exporting || buildingApk || verifyingBuildTarget ||
         reviewingCode || proposingRepair || repairingBuild || syncingGitHub
@@ -323,6 +319,27 @@ fun ProjectFactoryScreen(
             }
         }
     }
+    LaunchedEffect(initialPrompt, initialProfile) {
+        val nextInput = initialPrompt to initialProfile
+        if (lastFactoryInput != nextInput) {
+            lastFactoryInput = nextInput
+            clearReviewState()
+            discardCurrentDraft()
+            repairCandidateDraft = null
+            repairCandidateValidationIssues = emptyList()
+            generationValidationIssues = emptyList()
+            buildFailureDiagnostics = ""
+            buildFailureRunUrl = ""
+            buildStatus = ""
+            builtApk?.file?.delete()
+            builtApk = null
+            buildConsent = false
+            reviewConsent = false
+            status = "Novo pedido recebido do chat. Revise o nome, o perfil e os requisitos antes de gerar."
+            statusIsError = false
+        }
+    }
+
     val zipExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
     ) { uri: Uri? ->
