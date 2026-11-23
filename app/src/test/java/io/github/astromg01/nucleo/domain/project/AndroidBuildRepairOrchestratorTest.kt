@@ -40,7 +40,7 @@ class AndroidBuildRepairOrchestratorTest {
     )
 
     private fun repairResponse() = AiResponse(
-        text = """{"summary":"Adjusted the generated source.","files":[{"path":"$sourcePath","content":"package example\\nobject BuildInfo { const val READY = false }"}]}""",
+        text = """{"summary":"Adjusted the generated source.","files":[{"path":"$sourcePath","content":"package example\nobject BuildInfo { const val READY = false }"}]}""",
         providerName = "Test provider",
         modelName = "test-model",
     )

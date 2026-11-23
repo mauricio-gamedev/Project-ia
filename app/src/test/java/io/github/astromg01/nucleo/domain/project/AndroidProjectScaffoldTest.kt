@@ -45,10 +45,10 @@ class AndroidProjectScaffoldTest {
         assertTrue(files["app/build.gradle.kts"]!!.content.contains("id(\"com.android.application\")"))
         assertTrue(files["app/src/main/AndroidManifest.xml"]!!.content.contains("io.github.nucleo.generated.NucleoLauncherActivity"))
         assertTrue(files["app/src/main/AndroidManifest.xml"]!!.content.contains("android.intent.category.LAUNCHER"))
-        assertFalse(files["settings.gradle.kts"]!!.content.contains("\\n"))
-        assertFalse(files["build.gradle.kts"]!!.content.contains("\\n"))
-        assertFalse(files["app/build.gradle.kts"]!!.content.contains("\\n"))
-        assertFalse(files["app/src/main/AndroidManifest.xml"]!!.content.contains("\\n"))
+        assertFalse(files["settings.gradle.kts"]!!.content.contains("\n"))
+        assertFalse(files["build.gradle.kts"]!!.content.contains("\n"))
+        assertFalse(files["app/build.gradle.kts"]!!.content.contains("\n"))
+        assertFalse(files["app/src/main/AndroidManifest.xml"]!!.content.contains("\n"))
         ProjectFactory().validate(result.draft)
     }
 
@@ -468,7 +468,7 @@ class AndroidProjectScaffoldTest {
                     GeneratedProjectFile("settings.gradle.kts", duplicateSettings),
                     GeneratedProjectFile(
                         "app/src/main/java/example/MainActivity.kt",
-                        "package example\\nimport androidx.activity.ComponentActivity\\nclass MainActivity : ComponentActivity()",
+                        "package example\nimport androidx.activity.ComponentActivity\nclass MainActivity : ComponentActivity()",
                     ),
                 ),
             ),
@@ -477,7 +477,7 @@ class AndroidProjectScaffoldTest {
         assertTrue(result.replacedPaths.contains("settings.gradle.kts"))
         assertEquals(
             1,
-            Regex("""(?m)^\\s*pluginManagement\\s*\\{""").findAll(finalSettings).count(),
+            Regex("""(?m)^\s*pluginManagement\s*\{""").findAll(finalSettings).count(),
         )
     }
 
