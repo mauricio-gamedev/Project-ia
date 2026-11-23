@@ -65,6 +65,9 @@ class ChatCreationIntentParserTest {
         assertNull(ChatCreationIntentParser.parse("Otimize meu aplicativo Android"))
         assertNull(ChatCreationIntentParser.parse("Me ajude a corrigir meu app"))
         assertNull(ChatCreationIntentParser.parse("Vamos conversar sobre como criar um app"))
+        assertNull(ChatCreationIntentParser.parse("Não crie um APK"))
+        assertNull(ChatCreationIntentParser.parse("Não quero criar um aplicativo"))
+        assertNull(ChatCreationIntentParser.parse("Do not create an app"))
         assertNull(ChatCreationIntentParser.parse(" "))
     }
 }
