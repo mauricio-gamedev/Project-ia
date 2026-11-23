@@ -45,6 +45,7 @@ class ChatCreationIntentParserTest {
     @Test
     fun doesNotRouteContentCreationOrCodeAnalysisIntoProjectFactory() {
         assertNull(ChatCreationIntentParser.parse("Crie um roteiro de vídeo sobre Minecraft"))
+        assertNull(ChatCreationIntentParser.parse("Crie material no formato: Post. Tema/objetivo: divulgação do meu app."))
         assertNull(ChatCreationIntentParser.parse("Analise este APK e encontre os problemas"))
         assertNull(ChatCreationIntentParser.parse("Vamos conversar sobre como criar um app"))
         assertNull(ChatCreationIntentParser.parse(" "))
