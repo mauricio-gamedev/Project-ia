@@ -23,6 +23,7 @@ internal object ChatCreationIntentParser {
             "\\bpreciso\\s+(?:criar|fazer|desenvolver|montar|construir|de\\s+um|de\\s+uma)\\b)",
     )
     private val CONTENT_WORKSPACE_PREFIX = Regex("(?iu)^\\s*crie\\s+material\\s+no\\s+formato\\b")
+    private val NEGATED_REQUEST_PREFIX = Regex("(?iu)^\\s*(?:não|nao|do\\s+not|don['’]t|dont|never)\\b")
     private val DISCUSSION_PREFIX = Regex(
         "(?iu)^\\s*(?:como\\b|vamos\\s+conversar|quero\\s+conversar|me\\s+explique|" +
             "explica\\b|explique\\b|o\\s+que\\s+acha|analise\\b|analisar\\b|" +
@@ -53,7 +54,7 @@ internal object ChatCreationIntentParser {
 
     fun parse(input: String): ProjectCreationIntent? {
         val request = input.trim().take(4_000)
-        if (request.isBlank() || CONTENT_WORKSPACE_PREFIX.containsMatchIn(request) || DISCUSSION_PREFIX.containsMatchIn(request)) return null
+        if (request.isBlank() || CONTENT_WORKSPACE_PREFIX.containsMatchIn(request) || NEGATED_REQUEST_PREFIX.containsMatchIn(request) || DISCUSSION_PREFIX.containsMatchIn(request)) return null
         val action = CREATION_ACTION.find(request) ?: return null
         val target = PROJECT_TARGET.find(request, action.range.last + 1) ?: return null
         val contentTarget = CONTENT_TARGET.find(request, action.range.last + 1)
