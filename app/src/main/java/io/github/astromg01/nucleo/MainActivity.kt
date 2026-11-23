@@ -172,6 +172,7 @@ private fun NucleoShell(
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
+    var chatProjectFactoryOpen by rememberSaveable { mutableStateOf(false) }
     var chatSending by remember { mutableStateOf(false) }
     val chatSummaryMutex = remember { kotlinx.coroutines.sync.Mutex() }
     val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
@@ -282,21 +283,27 @@ private fun NucleoShell(
                     }
                 },
                 navigationIcon = {
-                    if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG) {
+                    if (screen == AppScreen.CHAT && chatProjectFactoryOpen) {
+                        IconButton(onClick = { chatProjectFactoryOpen = false }) {
+                            Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar à conversa")
+                        }
+                    } else if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG) {
                         IconButton(onClick = { screen = AppScreen.HOME }) {
                             Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar")
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { screen = AppScreen.SETTINGS }) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Configurações")
+                    if (!chatProjectFactoryOpen) {
+                        IconButton(onClick = { screen = AppScreen.SETTINGS }) {
+                            Icon(Icons.Outlined.Settings, contentDescription = "Configurações")
+                        }
                     }
                 },
             )
         },
         bottomBar = {
-            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG) {
+            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG && !chatProjectFactoryOpen) {
                 NavigationBar {
                     listOf(
                         AppScreen.HOME to Icons.Outlined.Home,
@@ -333,6 +340,8 @@ private fun NucleoShell(
                     summaryMutex = chatSummaryMutex,
                     onSendingChange = { chatSending = it },
                     onOpenSettings = { screen = AppScreen.SETTINGS },
+                    projectFactoryOpen = chatProjectFactoryOpen,
+                    onProjectFactoryOpenChange = { chatProjectFactoryOpen = it },
                 )
                 AppScreen.PROJECTS -> ProjectsScreen(projects, onAdd = { folderPicker.launch(null) })
                 AppScreen.TASKS -> TasksScreen(tasks, projects, onCreate = { title, prompt, projectId, consentToShareCode ->
@@ -509,6 +518,8 @@ private fun ChatScreen(
     summaryMutex: kotlinx.coroutines.sync.Mutex,
     onSendingChange: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
+    projectFactoryOpen: Boolean,
+    onProjectFactoryOpenChange: (Boolean) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -539,7 +550,6 @@ private fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var recoveredOrphanMessageId by remember { mutableStateOf("") }
     var creatorMode by remember { mutableStateOf(false) }
-    var projectFactoryOpen by rememberSaveable { mutableStateOf(false) }
     var projectFactoryPrompt by rememberSaveable { mutableStateOf("") }
     var projectFactoryProfile by rememberSaveable { mutableStateOf(ProjectProfile.ANDROID_APP.name) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
@@ -656,7 +666,7 @@ private fun ChatScreen(
             recoveredOrphanMessageId = submittedMessageId
             projectFactoryPrompt = text
             projectFactoryProfile = projectIntent.profile.name
-            projectFactoryOpen = true
+            onProjectFactoryOpenChange(true)
             requestScope.launch {
                 try {
                     if (existingUserMessageId == null) {
@@ -838,7 +848,7 @@ private fun ChatScreen(
             initialPrompt = projectFactoryPrompt,
             initialProfile = initialProfile,
             embedded = true,
-            onClose = { projectFactoryOpen = false },
+            onClose = { onProjectFactoryOpenChange(false) },
         )
     } else {
     Column(Modifier.fillMaxSize().imePadding()) {
@@ -914,7 +924,7 @@ private fun ChatScreen(
                 onClick = {
                     projectFactoryPrompt = ""
                     projectFactoryProfile = ProjectProfile.ANDROID_APP.name
-                    projectFactoryOpen = true
+                    onProjectFactoryOpenChange(true)
                 },
                 enabled = !sending && !chatMaintenance,
                 label = { Text("Criar projeto") },
