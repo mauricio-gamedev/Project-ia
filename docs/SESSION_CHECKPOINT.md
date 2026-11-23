@@ -4,7 +4,7 @@
 **Current main release:** `0.7.1-alpha` (`versionCode 11`)  
 **Active PR #8 candidate:** `0.9.0-alpha` (`versionCode 16`)  
 **Default branch:** `main`  
-**Handoff status:** Chat-first creation has been implemented on PR #8. Natural-language Android/APK, website, Python, and generic project requests now open the existing Project Factory inside the chat with request and profile prefilled. Content creation remains a contextual chat tool. Provider submission and remote builds retain their separate explicit consent. Verify CI against the exact latest head and complete on-device smoke testing before distributing this candidate.
+**Handoff status:** The owner confirmed that the chat-first creation workflow works well on-device. The captured Android build failure exposed duplicate Gradle `pluginManagement` blocks; PR #8 now hardens the scaffold and adds a consent-gated, maximum-two-cycle repair/rebuild path. Verify CI on the exact new head and retest both the normal and automatic build paths on the A06 before distributing this candidate.
 
 > This file is a resume aid, not a substitute for refreshing GitHub. On return, follow [AGENTS.md](../AGENTS.md) and re-check the live main SHA, open PRs, Actions, repository metadata, and protection state before making changes.
 
@@ -22,6 +22,15 @@
 - The owner wants autonomous implementation wherever the connected tools allow it and does not want Termux to be a requirement for this app workflow.
 
 ## Current consolidated implementation — PR #8
+
+## Owner device feedback — 2026-11-23
+
+- The owner confirmed that the new chat-first creation flow works correctly and is easier to use.
+- Captured generated-project build run: [apks-teste Actions run #11](https://github.com/mauricio-gamedev/apks-teste/actions/runs/45211602064). Source upload and workflow setup passed; Gradle failed because generated `settings.gradle.kts` contained two `pluginManagement` blocks.
+- The scaffold now rejects duplicate `pluginManagement` blocks and has a regression test. The build UI can optionally perform up to two AI repair/rebuild cycles, only for completed Gradle failures, while preserving separate AI-source-sharing and GitHub-build consent.
+- Resource audit found no safe-to-delete product feature directories. Unused direct lifecycle and Android instrumentation-test dependencies were removed; lifecycle-aware state collection and seven-day cleanup of abandoned private staging folders were added. User chat, memories, projects, Room data, icons, Shizuku, GitHub, and NúcleoLang remain intact.
+- The repair/rebuild automation and cleanup require exact-head CI validation and A06 retesting before being treated as verified.
+
 
 ### Chat-first creation — 0.9.0-alpha / versionCode 16
 - Remove the separate Chat / Modo Criador toggle. The default chat remains the primary interface; content creation is exposed as a contextual tool.

@@ -17,6 +17,14 @@ All notable project changes are documented here. Dates use ISO-style calendar da
 - Add intent-routing regression tests for supported project profiles and non-project discussion/content requests.
 - Bump to versionCode 16; preserve the application ID and stable signing identity.
 
+### Project Factory build reliability and resource cleanup
+- Reject Android Gradle settings with duplicate `pluginManagement` blocks before remote compilation.
+- Add opt-in automatic AI repair and rebuild, capped at two repair cycles and limited to completed Gradle failures.
+- Keep provider source-sharing consent separate from remote GitHub build consent; preserve the original staged project until a corrected revision produces a verified APK.
+- Retry malformed correction JSON once, validate every candidate before rebuilding, and show the final Gradle diagnostic lines in the UI.
+- Remove unused lifecycle and Android instrumentation-test dependencies that had no corresponding app imports or `androidTest` sources.
+- Collect Room-backed screen state only while the app is active and prune only abandoned private staging directories older than seven days.
+
 ## 0.8.3-alpha — 2026-10-28
 
 ### Chat stability and conversation management

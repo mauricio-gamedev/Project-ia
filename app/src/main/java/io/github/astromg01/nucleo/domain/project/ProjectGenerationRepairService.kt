@@ -4,6 +4,7 @@ import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
 import io.github.astromg01.nucleo.core.ai.AiResponse
 import io.github.astromg01.nucleo.core.ai.AiTaskType
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import java.util.Locale
 
@@ -75,18 +76,38 @@ class ProjectGenerationRepairService {
             jsonObjectMode = true,
             taskType = AiTaskType.CODE_REPAIR,
         )
-        val response = generate(request)
-        val proposal = parseProposal(response.text, draft)
-        val merged = mergeWithoutDeleting(draft, proposal.files)
-        ProjectFactory().validate(merged)
-        val after = ProjectGenerationValidator.validate(merged)
-        return ProjectGenerationRepairResult(
-            draft = merged,
-            summary = proposal.summary.ifBlank { "A IA propôs uma revisão estrutural." },
-            issuesBeforeRepair = before,
-            issuesAfterRepair = after,
-            attempted = true,
-        )
+        var lastFailure: Exception? = null
+        for (attempt in 1..MAX_RESPONSE_ATTEMPTS) {
+            val attemptRequest = if (attempt == 1) request else request.copy(
+                messages = request.messages + AiMessage("user", retryInstruction(lastFailure)),
+            )
+            // Provider/network failures are not format failures and must not trigger another request.
+            val response = generate(attemptRequest)
+            try {
+                val proposal = parseProposal(response.text, draft)
+                val merged = mergeWithoutDeleting(draft, proposal.files)
+                ProjectFactory().validate(merged)
+                val after = ProjectGenerationValidator.validate(merged)
+                return ProjectGenerationRepairResult(
+                    draft = merged,
+                    summary = proposal.summary.ifBlank { "A IA propôs uma revisão estrutural." },
+                    issuesBeforeRepair = before,
+                    issuesAfterRepair = after,
+                    attempted = true,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                lastFailure = error
+                if (attempt == MAX_RESPONSE_ATTEMPTS) {
+                    throw IllegalArgumentException(
+                        "A IA não entregou uma correção válida após " + MAX_RESPONSE_ATTEMPTS + " tentativas de formato.",
+                        error,
+                    )
+                }
+            }
+        }
+        throw IllegalStateException("A correção automática terminou sem uma proposta validada.")
     }
 
     private fun parseProposal(responseText: String, original: ProjectDraft): Proposal {
@@ -150,10 +171,22 @@ class ProjectGenerationRepairService {
         return merged
     }
 
+    private fun retryInstruction(reason: Exception?): String {
+        val detail = reason?.message.orEmpty()
+            .replace(Regex("[\\r\\n]+"), " ")
+            .take(MAX_RETRY_REASON_CHARS)
+        return "A proposta anterior foi rejeitada pela validação do Núcleo. Motivo: " + detail +
+            ". Refaça a correção em um único JSON válido, sem Markdown. " +
+            "Use exatamente o formato {\\"summary\\":\\"resumo\\",\\"files\\":[{\\"path\\":\\"caminho existente\\",\\"content\\":\\"arquivo completo\\\"}]}. " +
+            "Não omita código, não crie caminhos novos sem necessidade e não afirme que compilou ou testou."
+    }
+
     private data class Proposal(val summary: String, val files: List<GeneratedProjectFile>)
 
     private companion object {
         const val MAX_REPAIR_FILES = 40
+        const val MAX_RESPONSE_ATTEMPTS = 2
+        const val MAX_RETRY_REASON_CHARS = 400
         const val MAX_REPAIR_INPUT_CHARS = 48_000
         const val MAX_REPAIR_OUTPUT_TOKENS = 12_000
         const val MAX_ISSUES = 30

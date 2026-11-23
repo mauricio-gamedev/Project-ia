@@ -72,6 +72,8 @@ import io.github.astromg01.nucleo.domain.project.ProjectGenerationValidator
 import io.github.astromg01.nucleo.domain.project.ProjectGenerationRepairService
 import io.github.astromg01.nucleo.domain.project.AndroidProjectScaffold
 import io.github.astromg01.nucleo.domain.project.GitHubAndroidBuildAdapter
+import io.github.astromg01.nucleo.domain.project.AndroidBuildRepairOrchestrator
+import io.github.astromg01.nucleo.domain.project.AndroidBuildRepairOutcome
 import io.github.astromg01.nucleo.domain.project.BuiltAndroidArtifact
 import io.github.astromg01.nucleo.domain.project.StagedFileEvidence
 import io.github.astromg01.nucleo.domain.project.StagedFilePreview
@@ -139,6 +141,7 @@ fun ProjectFactoryScreen(
     var verifyingBuildTarget by remember { mutableStateOf(false) }
     var buildingApk by remember { mutableStateOf(false) }
     var buildConsent by remember { mutableStateOf(false) }
+    var autoRepairBuild by remember { mutableStateOf(false) }
     var buildStatus by remember { mutableStateOf("") }
     var githubStatus by remember { mutableStateOf("") }
     var buildFailureDiagnostics by remember { mutableStateOf("") }
@@ -166,6 +169,18 @@ fun ProjectFactoryScreen(
     var repairSummary by remember { mutableStateOf("") }
     var repairDiffs by remember { mutableStateOf<List<ProjectRepairDiffEntry>>(emptyList()) }
     var lastFactoryInput by remember { mutableStateOf(initialPrompt to initialProfile) }
+
+    LaunchedEffect(stagingRoot) {
+        try {
+            withContext(Dispatchers.IO) {
+                ProjectFactory().cleanupAbandonedStaging(stagingRoot)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Cache cleanup is best effort and never blocks project creation.
+        }
+    }
 
     val projectInteractionLocked = generating || exporting || buildingApk || verifyingBuildTarget ||
         reviewingCode || proposingRepair || repairingBuild || syncingGitHub
@@ -334,6 +349,9 @@ fun ProjectFactoryScreen(
             builtApk?.file?.delete()
             builtApk = null
             buildConsent = false
+            remoteConsent = false
+            reviewConsent = false
+            autoRepairBuild = false
             reviewConsent = false
             status = "Novo pedido recebido do chat. Revise o nome, o perfil e os requisitos antes de gerar."
             statusIsError = false
@@ -932,12 +950,26 @@ fun ProjectFactoryScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Checkbox(
+                                checked = autoRepairBuild,
+                                onCheckedChange = { autoRepairBuild = it },
+                                enabled = !projectInteractionLocked,
+                            )
+                            Text(
+                                "Corrigir e recompilar automaticamente (até 2 ciclos). Exige também autorização de análise/correção por IA.",
+                                modifier = Modifier.padding(top = 10.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Button(
                             onClick = {
                                 val hasStoredToken = !container.secretStore.readApiKey(GITHUB_OAUTH_TOKEN_ID).isNullOrBlank()
                                 val repository = githubConnectorPreferences.selectedBuildRepository()
                                 when {
                                     !buildConsent -> buildStatus = "Confirme o envio do fonte ao repositório privado e a execução do build remoto."
+                                    autoRepairBuild && !reviewConsent -> buildStatus = "Para usar a correção automática, ative também a autorização de análise/correção por IA."
                                     repository == null -> buildStatus = "Escolha um repositório no Conector GitHub em Configurações."
                                     !hasStoredToken -> {
                                         githubBuildTokenAvailable = false
@@ -960,16 +992,119 @@ fun ProjectFactoryScreen(
                                                     .authenticatedUserLogin(token)
                                                 githubAccountLogin = login
                                                 githubBuildTokenAvailable = true
-                                                val artifact = GitHubAndroidBuildAdapter(context).build(
-                                                    stagedProject = staged,
-                                                    stagingRoot = stagingRoot,
-                                                    owner = repository.owner,
-                                                    repository = repository.name,
-                                                    token = token,
-                                                    onStatus = { update -> scope.launch { buildStatus = update } },
+                                                val originalDraft = currentDraft
+                                                    ?: throw java.io.IOException("O fonte completo deste rascunho não está disponível.")
+                                                val adapter = GitHubAndroidBuildAdapter(context)
+                                                val outcome = AndroidBuildRepairOrchestrator().build(
+                                                    initialDraft = originalDraft,
+                                                    initialStagedProject = staged,
+                                                    maxAutoRepairAttempts = if (autoRepairBuild) {
+                                                        AndroidBuildRepairOrchestrator.MAX_AUTO_REPAIR_ATTEMPTS
+                                                    } else {
+                                                        0
+                                                    },
+                                                    generateRepair = { repairRequest ->
+                                                        try {
+                                                            container.modelRouter.generate(repairRequest)
+                                                        } catch (error: io.github.astromg01.nucleo.core.ai.ProviderHttpException) {
+                                                            if (error.statusCode == 400 && repairRequest.jsonObjectMode) {
+                                                                container.modelRouter.generate(repairRequest.copy(jsonObjectMode = false))
+                                                            } else {
+                                                                throw error
+                                                            }
+                                                        }
+                                                    },
+                                                    stageDraft = { candidateDraft ->
+                                                        withContext(Dispatchers.IO) {
+                                                            ProjectFactory().stage(candidateDraft, stagingRoot)
+                                                        }
+                                                    },
+                                                    buildStagedProject = { candidateStage ->
+                                                        adapter.build(
+                                                            stagedProject = candidateStage,
+                                                            stagingRoot = stagingRoot,
+                                                            owner = repository.owner,
+                                                            repository = repository.name,
+                                                            token = token,
+                                                            onStatus = { update -> scope.launch { buildStatus = update } },
+                                                        )
+                                                    },
+                                                    discardStagedProject = { candidateStage ->
+                                                        withContext(Dispatchers.IO) {
+                                                            ProjectFactory().discard(candidateStage, stagingRoot)
+                                                        }
+                                                    },
+                                                    onStatus = { update -> buildStatus = update },
                                                 )
-                                                builtApk = artifact
-                                                buildStatus = "APK compilado e verificado · SHA-256 ${artifact.sha256}."
+                                                when (outcome) {
+                                                    is AndroidBuildRepairOutcome.Success -> {
+                                                        if (outcome.stagedProject.id != staged.id) {
+                                                            stagedProject = outcome.stagedProject
+                                                            currentDraft = outcome.draft
+                                                            generationValidationIssues = emptyList()
+                                                            clearReviewState()
+                                                            previewFile = null
+                                                            preview = null
+                                                            previewError = null
+                                                            repairSummary = "Correção automática validada e compilada: " +
+                                                                outcome.repairSummaries.joinToString(" ")
+                                                        }
+                                                        builtApk = outcome.artifact
+                                                        buildFailureDiagnostics = ""
+                                                        buildFailureRunUrl = ""
+                                                        buildStatus = if (outcome.repairAttempts > 0) {
+                                                            "APK compilado e verificado após " + outcome.repairAttempts +
+                                                                " correção(ões) automática(s). SHA-256 " + outcome.artifact.sha256 + "."
+                                                        } else {
+                                                            "APK compilado e verificado · SHA-256 " + outcome.artifact.sha256 + "."
+                                                        }
+                                                    }
+                                                    is AndroidBuildRepairOutcome.Failed -> {
+                                                        buildFailureDiagnostics = outcome.failure.diagnostics
+                                                        buildFailureRunUrl = outcome.failure.runUrl
+                                                        if (outcome.stagedProject.id != staged.id) {
+                                                            val originalByPath = originalDraft.files.associateBy { it.path }
+                                                            val candidateDiffs = outcome.draft.files.mapNotNull { changed ->
+                                                                val original = originalByPath[changed.path]
+                                                                if (original == null || original.content != changed.content) {
+                                                                    ProjectRepairDiffEntry(changed.path, original?.content.orEmpty(), changed.content)
+                                                                } else {
+                                                                    null
+                                                                }
+                                                            }
+                                                            clearReviewState()
+                                                            repairCandidate = outcome.stagedProject
+                                                            repairCandidateDraft = outcome.draft
+                                                            repairCandidateValidationIssues = outcome.validationIssues
+                                                            repairDiffs = candidateDiffs
+                                                            repairSummary = buildString {
+                                                                append("Última proposta automática preservada em revisão separada. ")
+                                                                outcome.repairSummaries.forEach { append(it).append(" ") }
+                                                                if (outcome.validationIssues.isEmpty()) {
+                                                                    append("A validação estrutural passou, mas o Gradle ainda precisa ser analisado.")
+                                                                } else {
+                                                                    append("Restam ")
+                                                                    append(outcome.validationIssues.size)
+                                                                    append(" problema(s) de validação.")
+                                                                }
+                                                                if (!outcome.repairMessage.isNullOrBlank()) {
+                                                                    append(" ")
+                                                                    append(outcome.repairMessage)
+                                                                }
+                                                            }
+                                                        }
+                                                        builtApk = null
+                                                        buildStatus = if (outcome.repairAttempts > 0) {
+                                                            "O Gradle ainda falhou após " + outcome.repairAttempts +
+                                                                " correção(ões) automática(s). O projeto original foi preservado. " +
+                                                                outcome.repairMessage.orEmpty()
+                                                        } else if (!outcome.repairMessage.isNullOrBlank()) {
+                                                            outcome.failure.message + " " + outcome.repairMessage
+                                                        } else {
+                                                            outcome.failure.message ?: "Não foi possível compilar o APK."
+                                                        }
+                                                    }
+                                                }
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled
                                             } catch (error: Exception) {
@@ -1057,13 +1192,13 @@ fun ProjectFactoryScreen(
                                     Text("Erros principais da compilação", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                     SelectionContainer {
                                         Text(
-                                            buildFailureDiagnostics.take(2_400),
+                                            buildFailureDiagnostics.takeLast(2_400),
                                             style = MaterialTheme.typography.bodySmall,
                                             fontFamily = FontFamily.Monospace,
                                         )
                                     }
                                     Text(
-                                        "A correção assistida vai enviar o fonte atual e esses diagnósticos ao provedor de IA; ela não executa os arquivos.",
+                                        "A correção automática, quando ativada, envia o fonte e os diagnósticos ao provedor. Os arquivos não são executados no dispositivo.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

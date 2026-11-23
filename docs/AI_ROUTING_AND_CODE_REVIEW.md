@@ -52,3 +52,7 @@ This is static, model-assisted review. It does not run tests, lint, compilation,
 - Some providers do not support the same JSON response mode, content limits, or timeout behavior. Compatibility fallback is best effort.
 - Capability tiers and context sizes are user-provided estimates; no live benchmark/catalog sync is included in this slice.
 - No code execution sandbox is included. Test/build execution remains a separate future milestone requiring explicit roots, resource limits, process isolation, and cancellation.
+## Project Factory automatic repair
+
+The current candidate supports an optional, consent-gated automatic repair/rebuild cycle for Android projects. It is capped at two AI repair attempts and is activated only by a completed Gradle failure; connectivity, OAuth, permission, and workflow setup failures are not retried as source defects. Each repair is staged and revalidated before another remote build. The original draft remains available unless a corrected candidate produces a verified APK.
+

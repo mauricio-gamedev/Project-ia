@@ -444,4 +444,41 @@ class AndroidProjectScaffoldTest {
         assertTrue(result.replacedPaths.isEmpty())
         assertFalse(result.defaultLauncherAdded)
     }
+    @Test
+    fun replacesSettingsWithDuplicatePluginManagementBlocks() {
+        val duplicateSettings = """
+            pluginManagement {
+                repositories { google(); mavenCentral(); gradlePluginPortal() }
+            }
+            pluginManagement {
+                repositories { google(); mavenCentral(); gradlePluginPortal() }
+            }
+            dependencyResolutionManagement {
+                repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+                repositories { google(); mavenCentral() }
+            }
+            rootProject.name = "Duplicate settings"
+            include(":app")
+        """.trimIndent()
+        val result = AndroidProjectScaffold.complete(
+            ProjectDraft(
+                name = "Duplicate settings",
+                profile = ProjectProfile.ANDROID_APP,
+                files = listOf(
+                    GeneratedProjectFile("settings.gradle.kts", duplicateSettings),
+                    GeneratedProjectFile(
+                        "app/src/main/java/example/MainActivity.kt",
+                        "package example\\nimport androidx.activity.ComponentActivity\\nclass MainActivity : ComponentActivity()",
+                    ),
+                ),
+            ),
+        )
+        val finalSettings = result.draft.files.first { it.path == "settings.gradle.kts" }.content
+        assertTrue(result.replacedPaths.contains("settings.gradle.kts"))
+        assertEquals(
+            1,
+            Regex("""(?m)^\\s*pluginManagement\\s*\\{""").findAll(finalSettings).count(),
+        )
+    }
+
 }

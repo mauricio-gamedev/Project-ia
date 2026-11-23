@@ -27,3 +27,7 @@ The 0.9.0-alpha candidate routes explicit project-creation requests from chat in
 A successful CI run demonstrates that the tests and configured build/artifact checks passed on the runner. It does not prove every UI flow has been smoke-tested on every Android device, that generated projects are correct, or that the app is production-ready.
 
 Before distributing a build, install the exact APK on a device, verify the signing certificate is compatible with the installed app, open the app, and test the changed user flows.
+## Automatic Android build repair
+
+An opt-in repair setting can request up to two AI correction/rebuild cycles after a completed Gradle failure. It requires both existing permissions: source/diagnostic sharing with the AI provider and upload/build consent for the selected private GitHub repository. The app does not retry network or authorization failures as code defects. Each revised source tree is structurally validated before the next build, and the original remains available until a candidate passes the remote APK and checksum checks.
+

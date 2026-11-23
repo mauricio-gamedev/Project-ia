@@ -205,7 +205,8 @@ object AndroidProjectScaffold {
     }
 
     private fun isUsableSettings(content: String): Boolean =
-        content.contains("pluginManagement") &&
+        Regex("""(?m)^\s*pluginManagement\s*\{""").findAll(content).count() == 1 &&
+            content.contains("pluginManagement") &&
             content.contains("repositories") &&
             content.contains("google()") &&
             content.contains("mavenCentral()") &&

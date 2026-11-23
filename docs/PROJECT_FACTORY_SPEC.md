@@ -29,6 +29,14 @@ An optional remote GitHub Actions adapter is available for supported Android sca
 - A draft with unresolved structural findings may remain in private staging so the user can inspect and repair it, but remote APK compilation stays disabled until the current revision passes preflight.
 - Static checks do not compile or prove application behavior. Only a successful remote Gradle job plus artifact/signature/checksum verification counts as a built APK.
 
+## Bounded automatic build repair
+
+Android users may explicitly enable automatic repair/rebuild. The option requires the separate code-review consent because the staged source and sanitized Gradle diagnostics are sent to the configured AI provider. The remote-build consent remains independent and authorizes upload to the selected private GitHub repository and execution of its Gradle workflow.
+
+The orchestrator retries only after a completed GitHub Actions build reports a Gradle failure. Network, authentication, permission, and workflow-dispatch errors are surfaced without sending source for an unnecessary repair. At most two AI repair cycles are allowed. Each proposed revision is staged separately, checked with the Android scaffold and structural validator, and rebuilt remotely. The active original is retained until a repaired revision produces a verified APK. If retries are exhausted, the latest proposal remains available for manual review; it is never reported as compiled.
+
+The build screen presents the final relevant diagnostic lines rather than the beginning of a long log. A successful source proposal is not a successful build: the remote workflow, APK verification, and checksum checks must all pass.
+
 ## User flow
 
 Project Factory is launched from the main chat when the user explicitly asks to create an app/APK, website, Python project, or another supported project. The chat performs conservative local intent routing, then opens the existing factory with the request prefilled. The user still reviews the target profile and request and must explicitly consent before the configured provider receives the description. This entry point does not bypass validation, staging, export, code-review, or remote-build safeguards.

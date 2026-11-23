@@ -74,7 +74,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -194,13 +193,13 @@ private fun NucleoShell(
         }
     }
     val chatSummaryMutex = remember { kotlinx.coroutines.sync.Mutex() }
-    val projects by container.database.projectDao().observeAll().collectAsState(initial = emptyList())
-    val tasks by container.database.taskDao().observeAll().collectAsState(initial = emptyList())
-    val memories by container.database.memoryDao().observeAll().collectAsState(initial = emptyList())
+    val projects by container.database.projectDao().observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    val tasks by container.database.taskDao().observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    val memories by container.database.memoryDao().observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val homeChatFlow = remember(container.database) {
         container.database.chatMessageDao().observeRecentSession("main", 30)
     }
-    val chatMessages by homeChatFlow.collectAsState(initial = emptyList())
+    val chatMessages by homeChatFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val config = container.providerPreferences.load()
     val recentActivities = remember(projects, tasks, memories, chatMessages) {
         buildList {
@@ -567,11 +566,11 @@ private fun ChatScreen(
     val messagesFlow = remember(container.database, activeSessionId) {
         container.database.chatMessageDao().observeRecentSession(activeSessionId, MAX_RENDERED_CHAT_MESSAGES)
     }
-    val messages by messagesFlow.collectAsState(initial = emptyList())
+    val messages by messagesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val conversationsFlow = remember(container.database) {
         container.database.chatMessageDao().observeSessions()
     }
-    val conversations by conversationsFlow.collectAsState(initial = emptyList())
+    val conversations by conversationsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val currentConversationTitle = conversations.firstOrNull { it.sessionId == activeSessionId }
         ?.title?.lineSequence()?.firstOrNull()?.take(MAX_CONVERSATION_TITLE_CHARS)
         ?: "Nova conversa"

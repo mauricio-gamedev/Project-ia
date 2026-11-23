@@ -63,4 +63,28 @@ class ProjectGenerationRepairServiceTest {
         assertEquals("keep this note", result.draft.files.first { it.path == "notes.txt" }.content)
         assertFalse(result.issuesAfterRepair.isNotEmpty())
     }
+    @Test
+    fun retriesOnlyWhenTheCorrectionResponseHasInvalidFormat() = runBlocking {
+        val draft = ProjectDraft(
+            name = "Broken web project",
+            profile = ProjectProfile.GENERIC,
+            files = listOf(GeneratedProjectFile("app.js", "function run() { return [1; }")),
+        )
+        var calls = 0
+        val result = ProjectGenerationRepairService().repairOnce(draft, ProjectGenerationValidator.validate(draft)) {
+            calls++
+            if (calls == 1) {
+                AiResponse("not valid JSON", "Test provider", "test-model")
+            } else {
+                AiResponse(
+                    """{"summary":"Fixed the array.","files":[{"path":"app.js","content":"function run() { return [1]; }"}]}""",
+                    "Test provider",
+                    "test-model",
+                )
+            }
+        }
+        assertEquals(2, calls)
+        assertTrue(result.issuesAfterRepair.isEmpty())
+    }
+
 }

@@ -292,6 +292,44 @@ class ProjectFactory {
         }
     }
 
+    /**
+     * Removes only old, direct-child staging directories created by ProjectFactory.
+     * Active stage IDs are explicitly protected; symlinks and files are never followed or removed.
+     */
+    fun cleanupAbandonedStaging(
+        stagingRoot: File,
+        protectedStageIds: Set<String> = emptySet(),
+        nowMillis: Long = System.currentTimeMillis(),
+        maxAgeMillis: Long = DEFAULT_ABANDONED_STAGE_AGE_MILLIS,
+    ): Int {
+        require(maxAgeMillis >= 0L) { "A idade mínima de limpeza não pode ser negativa." }
+        val root = stagingRoot.toPath().toAbsolutePath().normalize()
+        if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS) ||
+            Files.isSymbolicLink(root) ||
+            !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)
+        ) return 0
+
+        val canonicalRoot = root.toRealPath()
+        var removed = 0
+        Files.newDirectoryStream(canonicalRoot).use { children ->
+            for (child in children) {
+                val childId = child.fileName?.toString() ?: continue
+                if (childId in protectedStageIds ||
+                    Files.isSymbolicLink(child) ||
+                    !Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)
+                ) continue
+
+                val realChild = child.toRealPath()
+                if (realChild.parent != canonicalRoot) continue
+                val modifiedAt = Files.getLastModifiedTime(child, LinkOption.NOFOLLOW_LINKS).toMillis()
+                if (modifiedAt > nowMillis || nowMillis - modifiedAt < maxAgeMillis) continue
+                deleteTree(realChild)
+                removed++
+            }
+        }
+        return removed
+    }
+
     @Throws(IOException::class, ProjectDraftValidationException::class)
     fun stage(draft: ProjectDraft, stagingRoot: File): StagedProject {
         val prepared = prepareFiles(draft)
@@ -519,6 +557,7 @@ class ProjectFactory {
         const val MAX_PREVIEW_CHARS = 16_000
         private const val MAX_REPORTED_PROBLEMS = 20
         private const val MAX_SLUG_CHARS = 32
+        private const val DEFAULT_ABANDONED_STAGE_AGE_MILLIS = 7L * 24 * 60 * 60 * 1000
         private val WINDOWS_DRIVE = Regex("^[A-Za-z]:.*")
         private val INVALID_PATH_CHARACTERS = setOf('<', '>', ':', '"', '|', '?', '*')
         private val BLOCKED_DIRECTORIES = setOf(
