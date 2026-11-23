@@ -19,7 +19,8 @@ internal object ChatCreationIntentParser {
             "desenvolva|desenvolver|desenvolvesse|implemente|implementar|gere|gerar|" +
             "monta|montar|faça|fazer|faz|build|create|develop|implement|make)\\b|" +
             "\\bquero\\s+(?:criar|fazer|desenvolver|montar|construir|um|uma)\\b|" +
-            "\\bme\\s+ajuda\\s+a\\s+(?:criar|fazer|desenvolver|montar)\\b)",
+            "\\bme\\s+ajuda(?:\\s+ou\\s+me\\s+ajude)?\\s+a\\s+(?:criar|fazer|desenvolver|montar)\\b|" +
+            "\\bpreciso\\s+(?:criar|fazer|desenvolver|montar|construir|de\\s+um|de\\s+uma)\\b)",
     )
     private val CONTENT_WORKSPACE_PREFIX = Regex("(?iu)^\\s*crie\\s+material\\s+no\\s+formato\\b")
     private val DISCUSSION_PREFIX = Regex(
