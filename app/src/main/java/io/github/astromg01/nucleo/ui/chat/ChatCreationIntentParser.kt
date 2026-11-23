@@ -63,8 +63,8 @@ internal object ChatCreationIntentParser {
 
         val profile = when {
             WEB_TARGET.containsMatchIn(request) -> ProjectProfile.WEB_APP
-            PYTHON_TARGET.containsMatchIn(request) -> ProjectProfile.PYTHON
             ANDROID_TARGET.containsMatchIn(request) -> ProjectProfile.ANDROID_APP
+            PYTHON_TARGET.containsMatchIn(request) -> ProjectProfile.PYTHON
             else -> ProjectProfile.GENERIC
         }
         return ProjectCreationIntent(profile)
