@@ -33,6 +33,8 @@ An optional remote GitHub Actions adapter is available for supported Android sca
 
 Project Factory is launched from the main chat when the user explicitly asks to create an app/APK, website, Python project, or another supported project. The chat performs conservative local intent routing, then opens the existing factory with the request prefilled. The user still reviews the target profile and request and must explicitly consent before the configured provider receives the description. This entry point does not bypass validation, staging, export, code-review, or remote-build safeguards.
 
+When the user returns to the chat, the embedded factory remains mounted off-screen for that app session so staged files, previews, review proposals, and build diagnostics are not discarded by ordinary in-app navigation. A new request/profile resets the previous staging and associated build evidence before preparing the next draft. Leaving the chat for Settings is a separate navigation path; verify the intended user flow before enabling it during an active draft.
+
 
 1. **Clarify the goal:** identify platform, required behavior, constraints, expected artifacts, and acceptance criteria.
 2. **Select a profile:** prefer deterministic templates for common structure and AI for task-specific source.
