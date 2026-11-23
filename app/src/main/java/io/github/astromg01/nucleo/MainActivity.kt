@@ -94,6 +94,8 @@ import io.github.astromg01.nucleo.core.ai.AiMessage
 import io.github.astromg01.nucleo.core.ai.AiRequest
 import io.github.astromg01.nucleo.ui.chat.ChatCommandParser
 import io.github.astromg01.nucleo.ui.chat.ChatCommandType
+import io.github.astromg01.nucleo.ui.chat.ChatCreationIntentParser
+import io.github.astromg01.nucleo.domain.project.ProjectProfile
 import io.github.astromg01.nucleo.data.local.ChatMessageEntity
 import io.github.astromg01.nucleo.data.local.MemoryEntity
 import io.github.astromg01.nucleo.data.local.ProjectEntity
@@ -119,7 +121,7 @@ private data class TimelineEntry(
 )
 
 private enum class AppScreen(val label: String) {
-    HOME("Início"), CHAT("Conversa"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), FACTORY("Criar projeto"), SETTINGS("Configurações")
+    HOME("Início"), CHAT("Conversa"), PROJECTS("Projetos"), TASKS("Tarefas"), MEMORY("Memória"), LANG("NúcleoLang"), SETTINGS("Configurações")
 }
 
 class MainActivity : ComponentActivity() {
@@ -280,7 +282,7 @@ private fun NucleoShell(
                     }
                 },
                 navigationIcon = {
-                    if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG || screen == AppScreen.FACTORY) {
+                    if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG) {
                         IconButton(onClick = { screen = AppScreen.HOME }) {
                             Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar")
                         }
@@ -294,7 +296,7 @@ private fun NucleoShell(
             )
         },
         bottomBar = {
-            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG && screen != AppScreen.FACTORY) {
+            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG) {
                 NavigationBar {
                     listOf(
                         AppScreen.HOME to Icons.Outlined.Home,
@@ -330,6 +332,7 @@ private fun NucleoShell(
                     sending = chatSending,
                     summaryMutex = chatSummaryMutex,
                     onSendingChange = { chatSending = it },
+                    onOpenSettings = { screen = AppScreen.SETTINGS },
                 )
                 AppScreen.PROJECTS -> ProjectsScreen(projects, onAdd = { folderPicker.launch(null) })
                 AppScreen.TASKS -> TasksScreen(tasks, projects, onCreate = { title, prompt, projectId, consentToShareCode ->
@@ -351,7 +354,6 @@ private fun NucleoShell(
                 })
                 AppScreen.SETTINGS -> SettingsScreen(container, oledBlack, onOledBlackChange)
                 AppScreen.LANG -> LangPlaygroundScreen()
-                AppScreen.FACTORY -> ProjectFactoryScreen(container, onOpenGitHubSettings = { screen = AppScreen.SETTINGS })
             }
         }
     }
@@ -472,11 +474,6 @@ private fun HomeScreen(
                 Spacer(Modifier.size(8.dp))
                 Text("Experimentar NúcleoLang")
             }
-            OutlinedButton(onClick = { onNavigate(AppScreen.FACTORY) }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
-                Spacer(Modifier.size(8.dp))
-                Text("Criar projeto com IA")
-            }
         }
         item { Spacer(Modifier.height(12.dp)) }
     }
@@ -511,6 +508,7 @@ private fun ChatScreen(
     sending: Boolean,
     summaryMutex: kotlinx.coroutines.sync.Mutex,
     onSendingChange: (Boolean) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -541,6 +539,9 @@ private fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var recoveredOrphanMessageId by remember { mutableStateOf("") }
     var creatorMode by remember { mutableStateOf(false) }
+    var projectFactoryOpen by rememberSaveable { mutableStateOf(false) }
+    var projectFactoryPrompt by rememberSaveable { mutableStateOf("") }
+    var projectFactoryProfile by rememberSaveable { mutableStateOf(ProjectProfile.ANDROID_APP.name) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
     var contentPlatform by remember { mutableStateOf("TikTok / Reels / Shorts") }
     var contentTopic by remember { mutableStateOf("") }
@@ -647,6 +648,44 @@ private fun ChatScreen(
             }
             return
         }
+        val projectIntent = ChatCreationIntentParser.parse(text)
+        if (projectIntent != null) {
+            draft = ""
+            val targetSessionId = activeSessionId
+            val submittedMessageId = existingUserMessageId ?: java.util.UUID.randomUUID().toString()
+            recoveredOrphanMessageId = submittedMessageId
+            projectFactoryPrompt = text
+            projectFactoryProfile = projectIntent.profile.name
+            projectFactoryOpen = true
+            requestScope.launch {
+                try {
+                    if (existingUserMessageId == null) {
+                        container.database.chatMessageDao().insert(
+                            ChatMessageEntity(
+                                id = submittedMessageId,
+                                sessionId = targetSessionId,
+                                role = "user",
+                                content = text,
+                            ),
+                        )
+                    }
+                    container.database.chatMessageDao().insert(
+                        ChatMessageEntity(
+                            sessionId = targetSessionId,
+                            role = "assistant",
+                            content = "Identifiquei um pedido de criação de projeto. Abri o Project Factory aqui na conversa e preenchi os requisitos iniciais. Revise o perfil e o texto; nada será enviado ao provedor nem compilado até você autorizar cada etapa.",
+                            provider = "Project Factory",
+                        ),
+                    )
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    chatCommandStatus = error.message ?: "Não foi possível registrar o pedido no histórico."
+                }
+            }
+            return
+        }
+
         val targetSessionId = activeSessionId
         val submittedMessageId = existingUserMessageId ?: java.util.UUID.randomUUID().toString()
         recoveredOrphanMessageId = submittedMessageId
@@ -790,6 +829,18 @@ private fun ChatScreen(
         }
     }
 
+    if (projectFactoryOpen) {
+        val initialProfile = runCatching { ProjectProfile.valueOf(projectFactoryProfile) }
+            .getOrDefault(ProjectProfile.ANDROID_APP)
+        ProjectFactoryScreen(
+            container = container,
+            onOpenGitHubSettings = onOpenSettings,
+            initialPrompt = projectFactoryPrompt,
+            initialProfile = initialProfile,
+            embedded = true,
+            onClose = { projectFactoryOpen = false },
+        )
+    } else {
     Column(Modifier.fillMaxSize().imePadding()) {
         Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -852,8 +903,22 @@ private fun ChatScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilterChip(selected = !creatorMode, onClick = { creatorMode = false }, label = { Text("Chat") })
-            FilterChip(selected = creatorMode, onClick = { creatorMode = true }, label = { Text("Modo Criador") })
+            FilterChip(
+                selected = creatorMode,
+                onClick = { creatorMode = !creatorMode },
+                enabled = !sending && !chatMaintenance,
+                label = { Text(if (creatorMode) "Fechar criador" else "Criar conteúdo") },
+            )
+            FilterChip(
+                selected = false,
+                onClick = {
+                    projectFactoryPrompt = ""
+                    projectFactoryProfile = ProjectProfile.ANDROID_APP.name
+                    projectFactoryOpen = true
+                },
+                enabled = !sending && !chatMaintenance,
+                label = { Text("Criar projeto") },
+            )
         }
         if (chatCommandStatus.isNotBlank()) {
             Text(
@@ -991,6 +1056,7 @@ private fun ChatScreen(
                 else Text("Enviar")
             }
         }
+    }
     }
     pendingDeleteSessionId?.let { sessionIdToDelete ->
         AlertDialog(
