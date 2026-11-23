@@ -11,14 +11,20 @@ internal data class ProjectCreationIntent(
  * inside the conversation instead of being answered as ordinary chat text.
  *
  * This parser is intentionally conservative: it requires both a creation action and a project
- * target, and it never treats analysis/review requests as a request to generate a new project.
+ * target, and it leaves discussion, analysis, and review requests in the normal chat.
  */
 internal object ChatCreationIntentParser {
     private val CREATION_ACTION = Regex(
-        "(?iu)\\b(?:crie|criar|cria|construa|construir|desenvolva|desenvolver|" +
-            "implemente|implementar|gere|gerar|monta|montar|faça|fazer|" +
-            "build|create|develop|implement|make)\\b|" +
-            "(?iu)\\bquero\\s+(?:criar|fazer|desenvolver|montar|construir)\\b",
+        "(?iu)(?:\\b(?:crie|criar|cria|criasse|criaria|criem|construa|construir|" +
+            "desenvolva|desenvolver|desenvolvesse|implemente|implementar|gere|gerar|" +
+            "monta|montar|faça|fazer|faz|build|create|develop|implement|make)\\b|" +
+            "\\bquero\\s+(?:criar|fazer|desenvolver|montar|construir|um|uma)\\b|" +
+            "\\bme\\s+ajuda\\s+a\\s+(?:criar|fazer|desenvolver|montar)\\b)",
+    )
+    private val DISCUSSION_PREFIX = Regex(
+        "(?iu)^\\s*(?:como\\b|vamos\\s+conversar|quero\\s+conversar|me\\s+explique|" +
+            "explica\\b|explique\\b|o\\s+que\\s+acha|analise\\b|analisar\\b|" +
+            "revise\\b|revisar\\b|corrija\\b|corrigir\\b)",
     )
     private val PROJECT_TARGET = Regex(
         "(?iu)\\b(?:apk|app|aplicativo|aplicação|site|website|web|landing\\s+page|" +
@@ -35,7 +41,7 @@ internal object ChatCreationIntentParser {
 
     fun parse(input: String): ProjectCreationIntent? {
         val request = input.trim().take(4_000)
-        if (request.isBlank()) return null
+        if (request.isBlank() || DISCUSSION_PREFIX.containsMatchIn(request)) return null
         if (!CREATION_ACTION.containsMatchIn(request) || !PROJECT_TARGET.containsMatchIn(request)) {
             return null
         }
