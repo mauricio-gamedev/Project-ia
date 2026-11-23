@@ -12,7 +12,7 @@
 
 ## Application layers
 
-- \`MainActivity\` and Compose UI: home, conversation, project library, tasks, memory, language playground, project factory, and settings.
+- \`MainActivity\` and Compose UI: home, conversation, project library, tasks, memory, language playground, settings, and contextual creation tools hosted inside chat.
 - \`NucleoApplication\` / \`AppContainer\`: application-wide dependency composition.
 - \`data/local\`: Room entities and DAOs for projects, task state, chat messages, and memories.
 - \`data/settings\`: provider profiles, fallback-route metadata, and URL validation.
@@ -29,14 +29,15 @@
 ## Chat request flow
 
 1. Select a persistent chat session and load only its bounded recent-message window.
-2. Persist the user message in Room.
-3. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
-4. Load a bounded chronological history of user/assistant turns.
-5. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
-6. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
-7. Route the request to a configured AI provider within its context budget.
-8. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
-9. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
+2. Detect explicit project-building requests using a conservative local intent parser. Matching requests open the existing Project Factory inside chat, prefill the profile/description, and do not contact the AI provider until the user accepts the existing generation consent.
+3. Persist ordinary chat messages in Room.
+4. Extract an explicit local memory only when the user uses a supported “remember that” command; obvious credential-like values are rejected.
+5. Load a bounded chronological history of user/assistant turns.
+6. Add the durable chat summary and relevant user-approved facts/preferences. Task-planning memories are excluded from this prompt.
+7. Fetch repository snippets only when the user explicitly enabled GitHub context for that request.
+8. Route the request to a configured AI provider within its context budget.
+9. Persist the response. A background task may update the durable summary after enough complete turns; summary failures do not invalidate the response.
+10. If Android interrupts a request after the user turn is persisted but before an assistant response exists, the chat may retry that existing turn without duplicating the message or automatically re-sending repository context.
 
 ## GitHub authorization flow
 
