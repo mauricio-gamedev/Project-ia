@@ -98,6 +98,7 @@ class AndroidBuildRepairOrchestratorTest {
         assertEquals(originalContent, original.files.first { it.path == sourcePath }.content)
         assertTrue(discarded.contains("original"))
         success.artifact.file.delete()
+        Unit
     }
 
     @Test
