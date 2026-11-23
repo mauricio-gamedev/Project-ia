@@ -29,8 +29,8 @@ internal object ChatCreationIntentParser {
             "revise\\b|revisar\\b|corrija\\b|corrigir\\b)",
     )
     private val NON_CREATION_ACTION = Regex(
-        "(?iu)\\b(?:analise|análise|analisar|revise|revisar|corrija|corrigir|conserte|consertar|" +
-            "otimize|otimizar|melhore|melhorar|modifique|modificar|refatore|refatorar|" +
+        "(?iu)\\b(?:analise|análise|analisar|revise|revisar|revisão|revisao|corrija|corrigir|conserte|consertar|" +
+            "otimize|otimizar|otimização|otimizacao|melhore|melhorar|melhoria|modifique|modificar|refatore|refatorar|" +
             "depure|depurar|debugue|debugar|audite|auditar|avalie|avaliar|explique|" +
             "review|fix|repair|improve|optimize|refactor)\\b",
     )
