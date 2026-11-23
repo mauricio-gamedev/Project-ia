@@ -111,6 +111,7 @@ fun ProjectFactoryScreen(
     initialProfile: ProjectProfile = ProjectProfile.ANDROID_APP,
     embedded: Boolean = false,
     onClose: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -442,7 +443,7 @@ fun ProjectFactoryScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (embedded) {
