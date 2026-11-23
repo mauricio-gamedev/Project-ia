@@ -16,6 +16,14 @@ class ChatCreationIntentParserTest {
             ProjectProfile.ANDROID_APP,
             ChatCreationIntentParser.parse("Quero desenvolver um aplicativo Android")?.profile,
         )
+        assertEquals(
+            ProjectProfile.ANDROID_APP,
+            ChatCreationIntentParser.parse("Me ajude a criar um app para anotações")?.profile,
+        )
+        assertEquals(
+            ProjectProfile.WEB_APP,
+            ChatCreationIntentParser.parse("Preciso de um site para minha comunidade")?.profile,
+        )
     }
 
     @Test
