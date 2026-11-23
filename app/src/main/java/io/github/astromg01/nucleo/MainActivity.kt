@@ -292,13 +292,21 @@ private fun NucleoShell(
                             Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar à conversa")
                         }
                     } else if (screen == AppScreen.SETTINGS || screen == AppScreen.LANG) {
-                        IconButton(onClick = { screen = AppScreen.HOME }) {
+                        IconButton(
+                            onClick = {
+                                screen = if (screen == AppScreen.SETTINGS && chatProjectFactoryOpen) {
+                                    AppScreen.CHAT
+                                } else {
+                                    AppScreen.HOME
+                                }
+                            },
+                        ) {
                             Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar")
                         }
                     }
                 },
                 actions = {
-                    if (!chatProjectFactoryOpen) {
+                    if (!(screen == AppScreen.CHAT && chatProjectFactoryOpen)) {
                         IconButton(onClick = { screen = AppScreen.SETTINGS }) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Configurações")
                         }
@@ -307,7 +315,7 @@ private fun NucleoShell(
             )
         },
         bottomBar = {
-            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG && !chatProjectFactoryOpen) {
+            if (screen != AppScreen.SETTINGS && screen != AppScreen.LANG && !(screen == AppScreen.CHAT && chatProjectFactoryOpen)) {
                 NavigationBar {
                     listOf(
                         AppScreen.HOME to Icons.Outlined.Home,
@@ -328,6 +336,23 @@ private fun NucleoShell(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
+            if (screen == AppScreen.CHAT || (screen == AppScreen.SETTINGS && chatProjectFactoryOpen)) {
+                ChatScreen(
+                    container = container,
+                    requestScope = scope,
+                    sending = chatSending,
+                    summaryMutex = chatSummaryMutex,
+                    onSendingChange = { chatSending = it },
+                    onOpenSettings = { screen = AppScreen.SETTINGS },
+                    projectFactoryOpen = chatProjectFactoryOpen,
+                    onProjectFactoryOpenChange = { chatProjectFactoryOpen = it },
+                    isActiveScreen = screen == AppScreen.CHAT,
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        alpha = if (screen == AppScreen.CHAT) 1f else 0f
+                        translationX = if (screen == AppScreen.CHAT) 0f else -size.width
+                    }.zIndex(if (screen == AppScreen.CHAT) 1f else -1f),
+                )
+            }
             when (screen) {
                 AppScreen.HOME -> HomeScreen(
                     projectsCount = projects.size,
@@ -337,19 +362,7 @@ private fun NucleoShell(
                     recentActivities = recentActivities,
                     onNavigate = { screen = it },
                 )
-                AppScreen.CHAT -> ChatScreen(
-                    container = container,
-                    requestScope = scope,
-                    sending = chatSending,
-                    summaryMutex = chatSummaryMutex,
-                    onSendingChange = { chatSending = it },
-                    onOpenSettings = {
-                        chatProjectFactoryOpen = false
-                        screen = AppScreen.SETTINGS
-                    },
-                    projectFactoryOpen = chatProjectFactoryOpen,
-                    onProjectFactoryOpenChange = { chatProjectFactoryOpen = it },
-                )
+                AppScreen.CHAT -> Unit
                 AppScreen.PROJECTS -> ProjectsScreen(projects, onAdd = { folderPicker.launch(null) })
                 AppScreen.TASKS -> TasksScreen(tasks, projects, onCreate = { title, prompt, projectId, consentToShareCode ->
                     scope.launch {
@@ -527,6 +540,8 @@ private fun ChatScreen(
     onOpenSettings: () -> Unit,
     projectFactoryOpen: Boolean,
     onProjectFactoryOpenChange: (Boolean) -> Unit,
+    isActiveScreen: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -575,7 +590,7 @@ private fun ChatScreen(
     var chatMaintenance by remember { mutableStateOf(false) }
     var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    BackHandler(enabled = projectFactoryOpen) {
+    BackHandler(enabled = isActiveScreen && projectFactoryOpen) {
         onProjectFactoryOpenChange(false)
     }
 
@@ -852,7 +867,7 @@ private fun ChatScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().clipToBounds()) {
+    Box(modifier.fillMaxSize().clipToBounds()) {
         Column(
             Modifier.fillMaxSize().imePadding().graphicsLayer {
                 alpha = if (projectFactoryOpen) 0f else 1f
