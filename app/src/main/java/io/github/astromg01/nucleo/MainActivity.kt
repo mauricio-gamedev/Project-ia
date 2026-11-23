@@ -83,6 +83,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -550,6 +553,7 @@ private fun ChatScreen(
     var draft by remember { mutableStateOf("") }
     var recoveredOrphanMessageId by remember { mutableStateOf("") }
     var creatorMode by remember { mutableStateOf(false) }
+    var projectFactoryMounted by rememberSaveable { mutableStateOf(false) }
     var projectFactoryPrompt by rememberSaveable { mutableStateOf("") }
     var projectFactoryProfile by rememberSaveable { mutableStateOf(ProjectProfile.ANDROID_APP.name) }
     var contentType by remember { mutableStateOf("Roteiro de vídeo") }
@@ -666,6 +670,7 @@ private fun ChatScreen(
             recoveredOrphanMessageId = submittedMessageId
             projectFactoryPrompt = text
             projectFactoryProfile = projectIntent.profile.name
+            projectFactoryMounted = true
             onProjectFactoryOpenChange(true)
             requestScope.launch {
                 try {
@@ -839,19 +844,13 @@ private fun ChatScreen(
         }
     }
 
-    if (projectFactoryOpen) {
-        val initialProfile = runCatching { ProjectProfile.valueOf(projectFactoryProfile) }
-            .getOrDefault(ProjectProfile.ANDROID_APP)
-        ProjectFactoryScreen(
-            container = container,
-            onOpenGitHubSettings = onOpenSettings,
-            initialPrompt = projectFactoryPrompt,
-            initialProfile = initialProfile,
-            embedded = true,
-            onClose = { onProjectFactoryOpenChange(false) },
-        )
-    } else {
-    Column(Modifier.fillMaxSize().imePadding()) {
+    Box(Modifier.fillMaxSize().clipToBounds()) {
+        Column(
+            Modifier.fillMaxSize().imePadding().graphicsLayer {
+                alpha = if (projectFactoryOpen) 0f else 1f
+                translationX = if (projectFactoryOpen) -size.width else 0f
+            }.zIndex(if (projectFactoryOpen) 0f else 1f),
+        ) {
         Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
             Text(
                 "Histórico e memória local ativos · GitHub só com consentimento",
@@ -924,6 +923,7 @@ private fun ChatScreen(
                 onClick = {
                     projectFactoryPrompt = ""
                     projectFactoryProfile = ProjectProfile.ANDROID_APP.name
+                    projectFactoryMounted = true
                     onProjectFactoryOpenChange(true)
                 },
                 enabled = !sending && !chatMaintenance,
@@ -1067,6 +1067,22 @@ private fun ChatScreen(
             }
         }
     }
+        if (projectFactoryMounted) {
+            val initialProfile = runCatching { ProjectProfile.valueOf(projectFactoryProfile) }
+                .getOrDefault(ProjectProfile.ANDROID_APP)
+            ProjectFactoryScreen(
+                container = container,
+                onOpenGitHubSettings = onOpenSettings,
+                initialPrompt = projectFactoryPrompt,
+                initialProfile = initialProfile,
+                embedded = true,
+                onClose = { onProjectFactoryOpenChange(false) },
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    alpha = if (projectFactoryOpen) 1f else 0f
+                    translationX = if (projectFactoryOpen) 0f else size.width
+                }.zIndex(if (projectFactoryOpen) 1f else 0f),
+            )
+        }
     }
     pendingDeleteSessionId?.let { sessionIdToDelete ->
         AlertDialog(
