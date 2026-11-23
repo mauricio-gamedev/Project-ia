@@ -957,7 +957,7 @@ fun ProjectFactoryScreen(
                                 enabled = !projectInteractionLocked,
                             )
                             Text(
-                                "Corrigir e recompilar automaticamente (até 2 ciclos). Exige também autorização de análise/correção por IA.",
+                                "Automático: corrigir e recompilar (máx. 2 tentativas). Requer autorização de análise por IA.",
                                 modifier = Modifier.padding(top = 10.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1189,7 +1189,7 @@ fun ProjectFactoryScreen(
                         if (buildFailureDiagnostics.isNotBlank()) {
                             Card(Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Erros principais da compilação", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                    Text("Motivo da falha", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                     SelectionContainer {
                                         Text(
                                             buildFailureDiagnostics.takeLast(2_400),
@@ -1198,7 +1198,7 @@ fun ProjectFactoryScreen(
                                         )
                                     }
                                     Text(
-                                        "A correção automática, quando ativada, envia o fonte e os diagnósticos ao provedor. Os arquivos não são executados no dispositivo.",
+                                        "A IA recebe o fonte e o log resumido. Ela prepara uma cópia para revisão; o projeto original não muda até você aplicar a correção. Nenhum arquivo é executado no aparelho.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1265,15 +1265,15 @@ fun ProjectFactoryScreen(
                                                                 append("Correção proposta por IA com base nos erros do Gradle. ")
                                                                 append(repair.summary)
                                                                 if (candidateIssues.isEmpty()) {
-                                                                    append(" A validação estática passou; é obrigatório executar o Gradle novamente para confirmar.")
+                                                                    append(" A estrutura passou na verificação; o build remoto ainda precisa confirmar se o APK compila.")
                                                                 } else {
-                                                                    append(" Ainda restam ")
+                                                                    append(" A cópia ainda tem ")
                                                                     append(candidateIssues.size)
-                                                                    append(" problema(s) estruturais; o build seguirá bloqueado.")
+                                                                    append(" problema(s) estruturais; a compilação ficará bloqueada até resolver.")
                                                                 }
                                                             }
                                                             repairDiffs = candidateDiffs
-                                                            status = "Proposta de correção criada em staging separado; o fonte ativo não foi alterado. Revise o diff antes de aplicar."
+                                                            status = "Cópia corrigida pronta para revisão. Confira os arquivos alterados; o projeto original continua intacto até você aplicar."
                                                             statusIsError = candidateIssues.isNotEmpty()
                                                         } catch (cancelled: CancellationException) {
                                                             throw cancelled
@@ -1290,7 +1290,7 @@ fun ProjectFactoryScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         if (repairingBuild) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                                        else Text("Propor correção com IA a partir do Gradle")
+                                        else Text("Criar correção para revisar")
                                     }
                                 }
                             }
