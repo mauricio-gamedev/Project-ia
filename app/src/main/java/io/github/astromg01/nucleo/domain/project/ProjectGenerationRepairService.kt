@@ -175,9 +175,9 @@ class ProjectGenerationRepairService {
         val detail = reason?.message.orEmpty()
             .replace(Regex("[\\r\\n]+"), " ")
             .take(MAX_RETRY_REASON_CHARS)
-        return "A proposta anterior foi rejeitada pela validação do Núcleo. Motivo: " + detail +
-            ". Refaça a correção em um único JSON válido, sem Markdown. " +
-            "Use exatamente o formato {\\"summary\\":\\"resumo\\",\\"files\\":[{\\"path\\":\\"caminho existente\\",\\"content\\":\\"arquivo completo\\\"}]}. " +
+        return "A proposta anterior foi rejeitada. Motivo: " + detail +
+            ". Retorne apenas um objeto JSON válido, sem Markdown, com os campos summary e files; " +
+            "cada item de files deve conter path e content com o arquivo completo. " +
             "Não omita código, não crie caminhos novos sem necessidade e não afirme que compilou ou testou."
     }
 
