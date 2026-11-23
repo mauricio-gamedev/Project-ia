@@ -32,7 +32,8 @@
 - Remove the separate Project Factory entry from the home screen; the chat is the entry point for project creation.
 - Added unit tests for Android/APK, Web, Python, Generic, content, and discussion routing.
 - Keep the embedded Project Factory mounted off-screen after returning to chat so app-session staging/review state remains available; reset stale staging/build evidence when a new prompt/profile arrives; Android Back closes the embedded flow.
-- Local isolated Kotlin validation passed 7 positive and 6 negative intent-routing cases. Full Android CI remains the repository authority; confirm the newest run for the exact head SHA.
+- Local isolated Kotlin validation passed 8 positive and 10 negative intent-routing cases. Full Android CI remains the repository authority; confirm the newest run for the exact head SHA.
+- When GitHub Settings is opened during an active project creation, keep the embedded chat/factory mounted underneath; Android Back returns to the still-open factory without discarding its staging state.
 - Version bump preserves application ID `io.github.astromg01.nucleo` and the established stable signing configuration.
 
 
