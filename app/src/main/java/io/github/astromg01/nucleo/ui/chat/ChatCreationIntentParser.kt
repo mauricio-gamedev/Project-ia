@@ -32,6 +32,10 @@ internal object ChatCreationIntentParser {
             "página|pagina|projeto|project|programa|software|sistema|jogo|game|bot|" +
             "ferramenta|tool|api|cli)\\b",
     )
+    private val CONTENT_TARGET = Regex(
+        "(?iu)\\b(?:roteiro|post|publicação|publicacao|live|ideias?\\s+de\\s+conteúdo|" +
+            "ideias?\\s+de\\s+conteudo|calendário|calendario|prompt\\s+visual|legenda|texto)\\b",
+    )
     private val WEB_TARGET = Regex(
         "(?iu)\\b(?:site|website|web|landing\\s+page|frontend|front-end|página|pagina)\\b",
     )
@@ -43,9 +47,10 @@ internal object ChatCreationIntentParser {
     fun parse(input: String): ProjectCreationIntent? {
         val request = input.trim().take(4_000)
         if (request.isBlank() || CONTENT_WORKSPACE_PREFIX.containsMatchIn(request) || DISCUSSION_PREFIX.containsMatchIn(request)) return null
-        if (!CREATION_ACTION.containsMatchIn(request) || !PROJECT_TARGET.containsMatchIn(request)) {
-            return null
-        }
+        val action = CREATION_ACTION.find(request) ?: return null
+        val target = PROJECT_TARGET.find(request, action.range.last + 1) ?: return null
+        val contentTarget = CONTENT_TARGET.find(request, action.range.last + 1)
+        if (contentTarget != null && contentTarget.range.first < target.range.first) return null
 
         val profile = when {
             WEB_TARGET.containsMatchIn(request) -> ProjectProfile.WEB_APP
