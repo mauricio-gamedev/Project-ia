@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -573,6 +574,10 @@ private fun ChatScreen(
     var conversationMenuExpanded by remember { mutableStateOf(false) }
     var chatMaintenance by remember { mutableStateOf(false) }
     var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = projectFactoryOpen) {
+        onProjectFactoryOpenChange(false)
+    }
 
     val markdownExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri == null) {
