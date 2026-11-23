@@ -62,7 +62,7 @@ internal fun cleanupAbandonedBuildCache(
     Files.newDirectoryStream(root).use { children ->
         for (child in children) {
             val name = child.fileName?.toString() ?: continue
-            if (prefixes.none(name::startsWith) ||
+            if (prefixes.none { prefix -> name.startsWith(prefix) } ||
                 Files.isSymbolicLink(child) ||
                 !Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)
             ) continue
@@ -182,7 +182,7 @@ class GitHubAndroidBuildAdapter(
     suspend fun verifyRepository(owner: String, repository: String, token: String): GitHubBuildRepository =
         withContext(Dispatchers.IO) {
             validateIdentity(owner, repository, token)
-        cleanupAbandonedBuildCache(context.cacheDir)
+        runCatching { cleanupAbandonedBuildCache(context.cacheDir) }
             val response = apiCall(
                 method = "GET",
                 url = apiUrl("repos", owner, repository),
