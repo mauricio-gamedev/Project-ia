@@ -12,11 +12,15 @@ Expected local output after a successful build:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-The app package ID is io.github.astromg01.nucleo. The current development version is 0.8.3-alpha with versionCode 15.
+The app package ID is io.github.astromg01.nucleo. `main` remains at 0.7.1-alpha / versionCode 11. PR #8 carries the 0.9.0-alpha / versionCode 16 chat-first creation candidate; its exact-head CI and device validation must be checked before distribution.
 
 ## Reference validation
 
 The main release line remains 0.7.1-alpha / versionCode 11. PR #8 contains the current Project Factory generation, repair, AI code-review JSON recovery, GitHub-session, and build-diagnostics hardening. Check the live [PR #8](https://github.com/mauricio-gamedev/Project-ia/pull/8) and its newest check on the exact head SHA before treating these changes as released. CI verifies app compilation/tests and the app APK; it does not compile every source project created by Project Factory.
+
+## Current candidate
+
+The 0.9.0-alpha candidate routes explicit project-creation requests from chat into the embedded Project Factory. It preserves explicit provider and remote-build consent. Check the newest Actions run for the exact PR #8 head before treating this candidate as validated; previous green runs cover earlier commits only.
 
 ## What a green build means
 
