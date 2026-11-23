@@ -104,7 +104,14 @@ private data class ProjectRepairDiffEntry(
 )
 
 @Composable
-fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Unit = {}) {
+fun ProjectFactoryScreen(
+    container: AppContainer,
+    onOpenGitHubSettings: () -> Unit = {},
+    initialPrompt: String = "",
+    initialProfile: ProjectProfile = ProjectProfile.ANDROID_APP,
+    embedded: Boolean = false,
+    onClose: () -> Unit = {},
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -117,9 +124,16 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
     var githubSyncTick by remember { mutableStateOf(0) }
     var syncingGitHub by remember { mutableStateOf(false) }
 
-    var projectName by remember { mutableStateOf("Meu projeto") }
-    var description by remember { mutableStateOf("") }
-    var profile by remember { mutableStateOf(ProjectProfile.ANDROID_APP) }
+    var projectName by remember(initialPrompt) {
+        mutableStateOf(
+            initialPrompt.lineSequence().firstOrNull()?.trim()?.take(ProjectFactory.MAX_NAME_CHARS)
+                ?.ifBlank { "Meu projeto" } ?: "Meu projeto",
+        )
+    }
+    var description by remember(initialPrompt) {
+        mutableStateOf(initialPrompt.take(ProjectFactory.MAX_DESCRIPTION_CHARS))
+    }
+    var profile by remember(initialPrompt, initialProfile) { mutableStateOf(initialProfile) }
     var remoteConsent by remember { mutableStateOf(false) }
     var generating by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
@@ -431,7 +445,18 @@ fun ProjectFactoryScreen(container: AppContainer, onOpenGitHubSettings: () -> Un
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Criar projeto com IA", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        if (embedded) {
+            TextButton(
+                onClick = onClose,
+                enabled = !projectInteractionLocked,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("← Voltar à conversa") }
+        }
+        Text(
+            if (embedded) "Criar projeto na conversa" else "Criar projeto com IA",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+        )
         Text(
             "A IA gera arquivos de texto. O Núcleo verifica os caminhos e arquivos essenciais e guarda o rascunho numa área privada antes de exportar. Nenhum script é executado e nenhum build é declarado como concluído.",
             style = MaterialTheme.typography.bodyMedium,
