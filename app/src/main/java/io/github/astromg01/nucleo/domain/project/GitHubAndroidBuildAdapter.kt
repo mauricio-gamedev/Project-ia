@@ -115,7 +115,7 @@ internal fun sanitizeBuildDiagnostics(raw: String): String {
             it.groupValues[1] + "[REDACTED]"
         }
     val important = Regex(
-        "(?i)(^\\s*e: |\\berror:|unresolved reference|cannot find symbol|compilation failed|failed with an exception|what went wrong|execution failed|could not resolve|could not find|manifest merger failed|duplicate class|type mismatch|expecting [a-z]+|not enough information to infer|is not abstract and does not implement|resource linking failed|aapt:|\\.kt:[0-9]+:[0-9]+|\\.java:[0-9]+:[0-9]+)"
+        "(?i)(^\\s*e: |\\berror:|unresolved reference|cannot find symbol|compilation failed|failed with an exception|what went wrong|caused by:|unexpectedduplicateblock|pluginmanagement|only one .*block|duplicate.*block|execution failed|could not resolve|could not find|manifest merger failed|duplicate class|type mismatch|expecting [a-z]+|not enough information to infer|is not abstract and does not implement|resource linking failed|aapt:|\\.kt:[0-9]+:[0-9]+|\\.java:[0-9]+:[0-9]+)"
     )
     val lines = safe.lineSequence().toList()
     var selected = lines.filter { important.containsMatchIn(it) }

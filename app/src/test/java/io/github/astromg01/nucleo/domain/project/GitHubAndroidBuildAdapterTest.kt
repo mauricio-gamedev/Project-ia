@@ -124,4 +124,18 @@ class GitHubAndroidBuildAdapterTest {
         assertNull(readableRawBuildLog(binary, maxChars = 200))
     }
 
+    @Test
+    fun keepsTheGradleRootCauseInsteadOfOnlyTheFailureHeader() {
+        val raw = """
+            FAILURE: Build failed with an exception.
+            What went wrong:
+            Caused by: org.gradle.kotlin.dsl.execution.UnexpectedDuplicateBlock: Unexpected pluginManagement block found. Only one pluginManagement block is allowed per script.
+        """.trimIndent()
+
+        val safe = sanitizeBuildDiagnostics(raw)
+
+        assertTrue(safe.contains("UnexpectedDuplicateBlock"))
+        assertTrue(safe.contains("Only one pluginManagement block"))
+    }
+
 }
