@@ -56,6 +56,10 @@ class ChatCreationIntentParserTest {
         assertNull(ChatCreationIntentParser.parse("Crie um post para divulgar meu app"))
         assertNull(ChatCreationIntentParser.parse("Crie material no formato: Post. Tema/objetivo: divulgação do meu app."))
         assertNull(ChatCreationIntentParser.parse("Analise este APK e encontre os problemas"))
+        assertNull(ChatCreationIntentParser.parse("Faça uma análise do APK"))
+        assertNull(ChatCreationIntentParser.parse("Faça uma revisão no sistema"))
+        assertNull(ChatCreationIntentParser.parse("Otimize meu aplicativo Android"))
+        assertNull(ChatCreationIntentParser.parse("Me ajude a corrigir meu app"))
         assertNull(ChatCreationIntentParser.parse("Vamos conversar sobre como criar um app"))
         assertNull(ChatCreationIntentParser.parse(" "))
     }
